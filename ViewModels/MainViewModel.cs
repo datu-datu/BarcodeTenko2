@@ -23,6 +23,7 @@ namespace Tenko.Native.ViewModels
         private string _notificationMessage = string.Empty;
         private NotificationType _notificationType = NotificationType.Success;
         private bool _isNotificationVisible = false;
+        private List<ScanRecord> _allHistory = new();
 
         public ObservableCollection<ScanRecord> History { get; } = new();
         public ObservableCollection<string> Locations { get; } = new();
@@ -74,6 +75,7 @@ namespace Tenko.Native.ViewModels
                     _settingsService.Location = value;
                     OnPropertyChanged(nameof(IsLocationSet));
                     CheckBinFile();
+                    RefreshHistoryView();
                 }
             }
         }
@@ -114,9 +116,19 @@ namespace Tenko.Native.ViewModels
         // 履歴ファイルの内容を UI コレクションへ反映する。
         private void LoadHistory()
         {
-            var items = _historyService.LoadHistory();
+            _allHistory = _historyService.LoadHistory();
+            RefreshHistoryView();
+        }
+
+        // 現在のロケーションに一致する履歴のみを UI コレクションへ表示する。
+        private void RefreshHistoryView()
+        {
             History.Clear();
-            foreach (var item in items) History.Add(item);
+            var filtered = _allHistory.Where(h => h.Location == CurrentLocation).ToList();
+            foreach (var item in filtered)
+            {
+                History.Add(item);
+            }
         }
 
         // 現在ロケーションの bin ファイル有無を確認し、警告表示状態を更新する。
@@ -129,6 +141,12 @@ namespace Tenko.Native.ViewModels
         private void SubmitManualInput()
         {
             if (string.IsNullOrWhiteSpace(ManualInput)) return;
+
+            if (string.IsNullOrEmpty(CurrentLocation))
+            {
+                _notificationService.Warning("スキャン場所を選択してください。");
+                return;
+            }
             
             // 数字以外は受け付けない。
             if (!ManualInput.All(char.IsDigit))
@@ -141,6 +159,15 @@ namespace Tenko.Native.ViewModels
             if (ManualInput.Length != 5 && ManualInput.Length != 10)
             {
                 _notificationService.Error("5桁または10桁の数字を入力してください。");
+                return;
+            }
+
+            // 重複チェック (同一ロケーションで同一バーコード)
+            if (History.Any(h => h.Barcode == ManualInput))
+            {
+                _notificationService.Warning("このバーコードは既にスキャン済みです。");
+                // 重複でも一応入力をクリアするか、残すか。クリアしたほうが連続スキャンには向く。
+                ManualInput = string.Empty;
                 return;
             }
 
@@ -170,8 +197,9 @@ namespace Tenko.Native.ViewModels
                     Location = CurrentLocation
                 };
 
+                _allHistory.Insert(0, record);
                 History.Insert(0, record);
-                _historyService.SaveHistory(History.ToList());
+                _historyService.SaveHistory(_allHistory);
                 _scanFileService.AppendLast5(CurrentLocation, last5);
             }
             catch (Exception ex)
@@ -195,8 +223,9 @@ namespace Tenko.Native.ViewModels
 
             try
             {
+                _allHistory.Remove(record);
                 History.Remove(record);
-                _historyService.SaveHistory(History.ToList());
+                _historyService.SaveHistory(_allHistory);
                 _scanFileService.RemoveLast5(record.Location, record.Last5);
                 _notificationService.Success("レコードを削除しました。");
             }
@@ -209,6 +238,8 @@ namespace Tenko.Native.ViewModels
         // 現在ロケーションの履歴と bin ファイルを削除する。
         private void DeleteAll()
         {
+            if (string.IsNullOrEmpty(CurrentLocation)) return;
+
             var result = MessageBox.Show(
                 $"現在の「{CurrentLocation}」の履歴とバイナリデータを削除しますか？\n他のデータは削除されません。",
                 "履歴削除の確認",
@@ -217,8 +248,9 @@ namespace Tenko.Native.ViewModels
 
             if (result != MessageBoxResult.Yes) return;
 
+            _allHistory.RemoveAll(h => h.Location == CurrentLocation);
             History.Clear();
-            _historyService.SaveHistory(new());
+            _historyService.SaveHistory(_allHistory);
             _scanFileService.DeleteBin(CurrentLocation);
             CheckBinFile();
             _notificationService.Success($"現在の「{CurrentLocation}」の履歴を削除しました。");
@@ -240,8 +272,9 @@ namespace Tenko.Native.ViewModels
                 _scanFileService.RenameBin(CurrentLocation, sanitized);
                 
                 // 退避後は現在ロケーションの新規計測として履歴をリセットする。
+                _allHistory.RemoveAll(h => h.Location == CurrentLocation);
                 History.Clear();
-                _historyService.SaveHistory(new());
+                _historyService.SaveHistory(_allHistory);
                 
                 ShowBinWarning = false;
                 _notificationService.Success($"既存ファイルを ids_{CurrentLocation}_{sanitized}.bin に退避しました。");
@@ -304,7 +337,7 @@ namespace Tenko.Native.ViewModels
             _notificationTimer?.Stop();
             _notificationTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromMilliseconds(1200)
+                Interval = TimeSpan.FromMilliseconds(2000)
             };
             _notificationTimer.Tick += (s, e) =>
             {

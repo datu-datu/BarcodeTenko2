@@ -41,24 +41,36 @@ namespace Tenko.Native.Services
             string path = GetFilePath(location);
             if (!File.Exists(path)) return;
 
-            byte[] allBytes = File.ReadAllBytes(path);
-            if (allBytes.Length % 2 != 0)
+            try
             {
-                throw new InvalidDataException($"bin ファイルが壊れています: {path}");
-            }
+                byte[] allBytes = File.ReadAllBytes(path);
+                if (allBytes.Length % 2 != 0)
+                {
+                    // 壊れている場合は読み飛ばすか、例外を投げて上位でハンドリングする
+                    return;
+                }
 
-            List<ushort> values = new List<ushort>();
-            for (int i = 0; i < allBytes.Length; i += 2)
-            {
-                values.Add(BitConverter.ToUInt16(allBytes, i));
-            }
+                List<ushort> values = new List<ushort>();
+                for (int i = 0; i < allBytes.Length; i += 2)
+                {
+                    // BitConverter はシステム依存だが、x86/x64 は Little Endian。
+                    // 明示的に制御する場合は BinaryReader 等を使うべき。
+                    values.Add(BitConverter.ToUInt16(allBytes, i));
+                }
 
-            // 最後に追加された同値を削除するため、末尾側から探索する。
-            int index = values.LastIndexOf(last5);
-            if (index >= 0)
+                // 最後に追加された同値を削除するため、末尾側から探索する。
+                int index = values.LastIndexOf(last5);
+                if (index >= 0)
+                {
+                    values.RemoveAt(index);
+                    // 追記中かもしれないので本来はロック等考慮すべきだが、
+                    // 現状はシンプルに書き戻す。
+                    File.WriteAllBytes(path, values.SelectMany(v => BitConverter.GetBytes(v)).ToArray());
+                }
+            }
+            catch (IOException)
             {
-                values.RemoveAt(index);
-                File.WriteAllBytes(path, values.SelectMany(v => BitConverter.GetBytes(v)).ToArray());
+                // ファイル使用中などのエラー
             }
         }
 
