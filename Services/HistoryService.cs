@@ -39,8 +39,15 @@ namespace Tenko.Native.Services
         // 履歴一覧を history.json へ上書き保存する。
         public void SaveHistory(List<ScanRecord> history)
         {
-            string json = JsonSerializer.Serialize(history);
-            File.WriteAllText(_historyPath, json);
+            try
+            {
+                string json = JsonSerializer.Serialize(history);
+                File.WriteAllText(_historyPath, json);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[HistoryService] SaveHistory failed: {ex.Message}");
+            }
         }
     }
 }

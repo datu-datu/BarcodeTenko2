@@ -66,11 +66,13 @@
                         <TextBox x:Name="ManualInputBox" Style="{StaticResource ModernTextBox}" 
                                 Text="{Binding ManualInput, UpdateSourceTrigger=PropertyChanged}" 
                                 Tag="バーコードを入力..."
+                                IsEnabled="{Binding IsLocationSet}"
                                 FontSize="20" FontWeight="Bold"
                                 KeyDown="ManualInputBox_KeyDown" 
                                 Height="45" Margin="0,0,0,0" VerticalContentAlignment="Center" Padding="12,8"/>
                         
                         <Button Content="決定" Command="{Binding SubmitCommand}" 
+                                IsEnabled="{Binding IsLocationSet}"
                                 Style="{StaticResource ModernButton}" Height="45" Margin="0,8,0,0"/>
 
                         <Separator Margin="0,24" Background="{StaticResource BorderBrush}"/>
@@ -96,6 +98,7 @@
                         </Grid>
 
                         <Button Content="全履歴を削除" Command="{Binding DeleteAllCommand}" 
+                                IsEnabled="{Binding IsLocationSet}"
                                 Style="{StaticResource DangerButton}" Margin="0,32,0,0" Opacity="0.8"/>
                     </StackPanel>
                 </Border>
