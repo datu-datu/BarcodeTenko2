@@ -237,5 +237,23 @@ namespace Tenko.Native
             _viewModel.ShowBinWarning = false;
             ManualInputBox.Focus();
         }
+
+        private void CompleteRenameButton_Click(object sender, RoutedEventArgs e)
+        {
+            string newName = CompleteRenameTextBox.Text;
+            if (!string.IsNullOrWhiteSpace(newName))
+            {
+                _viewModel.RenameBinCommand.Execute(newName);
+                _viewModel.ShowCompleteModal = false;
+                CompleteRenameTextBox.Text = string.Empty;
+                ManualInputBox.Focus();
+            }
+        }
+
+        private void CancelComplete_Click(object sender, RoutedEventArgs e)
+        {
+            _viewModel.ShowCompleteModal = false;
+            ManualInputBox.Focus();
+        }
     }
 }
