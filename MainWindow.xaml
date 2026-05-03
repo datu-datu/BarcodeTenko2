@@ -97,9 +97,13 @@
                                     Style="{StaticResource OutlineButton}" Margin="4,0,0,0"/>
                         </Grid>
 
+                        <Button Content="点呼完了 (ファイルを退避)" Command="{Binding OpenCompleteModalCommand}"
+                                IsEnabled="{Binding IsLocationSet}"
+                                Style="{StaticResource ModernButton}" Margin="0,32,0,0"/>
+
                         <Button Content="全履歴を削除" Command="{Binding DeleteAllCommand}" 
                                 IsEnabled="{Binding IsLocationSet}"
-                                Style="{StaticResource DangerButton}" Margin="0,32,0,0" Opacity="0.8"/>
+                                Style="{StaticResource DangerButton}" Margin="8,8,0,0" Opacity="0.8"/>
                     </StackPanel>
                 </Border>
 
@@ -181,6 +185,31 @@
         </Border>
 
         <!-- Modals -->
+        <!-- Tenko Complete Modal -->
+        <Border Grid.RowSpan="2" Background="#99000000" Visibility="{Binding ShowCompleteModal, Converter={StaticResource BoolToVis}}" Panel.ZIndex="2000">
+            <Border Background="White" Width="450" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="32" CornerRadius="16">
+                <StackPanel>
+                    <TextBlock Text="点呼を完了してファイルを退避します" FontSize="20" FontWeight="Bold" Margin="0,0,12,0"/>
+                    <TextBlock Text="現在のデータを別名で保存し、次の点呼のために履歴をリセットします。"
+                        TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,24,0" LineHeight="20"/>
+
+                    <TextBlock Text="ファイル名の末尾（例：朝，午後）" FontSize="12" FontWeight="Bold" Margin="0,0,4,0" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <TextBox x:Name="CompleteRenameTextBox" Style="{StaticResource ModernTextBox}" Height="45" Margin="0,0,0,32" VerticalContentAlignment="Center" Padding="12,8"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="完了して退避" Click="CompleteRenameButton_Click"
+                                Style="{StaticResource ModernButton}" Height="45" Margin="0,0,8,0"/>
+                        <Button Grid.Column="1" Content="キャンセル" Click="CancelComplete_Click"
+                                Style="{StaticResource OutlineButton}" Height="45" Margin="8,0,0,0"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Border>
+
         <!-- Bin Warning Modal -->
         <Border Grid.RowSpan="2" Background="#99000000" Visibility="{Binding ShowBinWarning, Converter={StaticResource BoolToVis}}" Panel.ZIndex="2000">
             <Border Background="White" Width="450" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="32" CornerRadius="16">

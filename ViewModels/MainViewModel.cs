@@ -20,6 +20,7 @@ namespace Tenko.Native.ViewModels
         private string _manualInput = string.Empty;
         private string _currentLocation = string.Empty;
         private bool _showBinWarning = false;
+        private bool _showCompleteModal = false;
         private string _notificationMessage = string.Empty;
         private NotificationType _notificationType = NotificationType.Success;
         private bool _isNotificationVisible = false;
@@ -57,6 +58,7 @@ namespace Tenko.Native.ViewModels
             ExportCsvCommand = new RelayCommand(_ => ExportCsv());
             ExportBinCommand = new RelayCommand(_ => ExportBin());
             RenameBinCommand = new RelayCommand<string>(newName => RenameBin(newName));
+            OpenCompleteModalCommand = new RelayCommand(_ => { if (IsLocationSet) ShowCompleteModal = true; });
         }
 
         public string ManualInput
@@ -88,6 +90,12 @@ namespace Tenko.Native.ViewModels
             set => SetProperty(ref _showBinWarning, value);
         }
 
+        public bool ShowCompleteModal
+        {
+            get => _showCompleteModal;
+            set => SetProperty(ref _showCompleteModal, value);
+        }
+
         public string NotificationMessage
         {
             get => _notificationMessage;
@@ -112,6 +120,7 @@ namespace Tenko.Native.ViewModels
         public ICommand ExportCsvCommand { get; }
         public ICommand ExportBinCommand { get; }
         public ICommand RenameBinCommand { get; }
+        public ICommand OpenCompleteModalCommand { get; }
 
         // 履歴ファイルの内容を UI コレクションへ反映する。
         private void LoadHistory()
@@ -260,6 +269,7 @@ namespace Tenko.Native.ViewModels
         private void RenameBin(string? newName)
         {
             if (string.IsNullOrEmpty(newName)) return;
+            if (string.IsNullOrEmpty(CurrentLocation)) return;
             
             // ファイル名として不正な文字を置換する。
             var invalidChars = Path.GetInvalidFileNameChars();
@@ -277,7 +287,8 @@ namespace Tenko.Native.ViewModels
                 _historyService.SaveHistory(_allHistory);
                 
                 ShowBinWarning = false;
-                _notificationService.Success($"既存ファイルを ids_{CurrentLocation}_{sanitized}.bin に退避しました。");
+                ShowCompleteModal = false;
+                _notificationService.Success($"ファイルを ids_{CurrentLocation}_{sanitized}.bin に退避しました。");
             }
             catch (Exception ex)
             {
