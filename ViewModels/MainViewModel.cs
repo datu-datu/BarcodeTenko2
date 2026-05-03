@@ -353,6 +353,7 @@ namespace Tenko.Native.ViewModels
             _notificationTimer.Tick += (s, e) =>
             {
                 IsNotificationVisible = false;
+                NotificationMessage = string.Empty;
                 _notificationTimer?.Stop();
             };
             _notificationTimer.Start();
