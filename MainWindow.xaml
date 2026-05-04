@@ -89,6 +89,14 @@
 
                         <Separator Margin="0,15" Background="{StaticResource BorderBrush}"/>
 
+                        <TextBlock Text="履歴の検索" FontWeight="Bold" Margin="0,0,0,10" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBox Style="{StaticResource ModernTextBox}"
+                                Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                FontSize="14"
+                                Height="28" Margin="0,0,0,15" VerticalContentAlignment="Center"/>
+
+                        <Separator Margin="0,0,0,15" Background="{StaticResource BorderBrush}"/>
+
                         <TextBlock Text="累計" FontSize="12" Margin="0,0,0,5" Foreground="{StaticResource TextSecondaryBrush}"/>
                         <Border Background="#F0F0F0" Padding="10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,0,0,15">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">

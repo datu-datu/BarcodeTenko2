@@ -19,6 +19,7 @@ namespace Tenko.Native.ViewModels
         private readonly StudentService _studentService;
 
         private string _manualInput = string.Empty;
+        private string _searchText = string.Empty;
         private string _currentLocation = string.Empty;
         private bool _showBinWarning = false;
         private bool _showCompleteModal = false;
@@ -68,6 +69,18 @@ namespace Tenko.Native.ViewModels
         {
             get => _manualInput;
             set => SetProperty(ref _manualInput, value);
+        }
+
+        public string SearchText
+        {
+            get => _searchText;
+            set
+            {
+                if (SetProperty(ref _searchText, value))
+                {
+                    RefreshHistoryView();
+                }
+            }
         }
 
         public string CurrentLocation
@@ -138,12 +151,30 @@ namespace Tenko.Native.ViewModels
             RefreshHistoryView();
         }
 
-        // 現在のロケーションに一致する履歴のみを UI コレクションへ表示する。
+        // 指定したレコードが現在の検索条件に合致するか判定する。
+        private bool MatchesSearch(ScanRecord record)
+        {
+            if (string.IsNullOrWhiteSpace(SearchText)) return true;
+
+            string lowerSearch = SearchText.ToLower();
+            return record.StudentName.ToLower().Contains(lowerSearch) ||
+                   record.StudentCode.ToLower().Contains(lowerSearch) ||
+                   record.Last5.ToString("D5").Contains(lowerSearch) ||
+                   record.Barcode.Contains(lowerSearch);
+        }
+
+        // 現在のロケーションに一致し、かつ検索条件に合致する履歴のみを UI コレクションへ表示する。
         private void RefreshHistoryView()
         {
             History.Clear();
-            var filtered = _allHistory.Where(h => h.Location == CurrentLocation).ToList();
-            foreach (var item in filtered)
+            var query = _allHistory.Where(h => h.Location == CurrentLocation);
+
+            if (!string.IsNullOrWhiteSpace(SearchText))
+            {
+                query = query.Where(MatchesSearch);
+            }
+
+            foreach (var item in query.ToList())
             {
                 History.Add(item);
             }
@@ -188,10 +219,11 @@ namespace Tenko.Native.ViewModels
                 return;
             }
 
-            if (History.Any(h => h.Last5 == last5))
+            // 重複チェック (同一ロケーションで同一の学籍番号下5桁)
+            // UI上の History はフィルタリングされている可能性があるため、_allHistory からチェックする。
+            if (_allHistory.Any(h => h.Location == CurrentLocation && h.Last5 == last5))
             {
                 _notificationService.Warning("この番号は既にスキャン済みです。");
-                // 重複でも一応入力をクリアするか、残すか。クリアしたほうが連続スキャンには向く。
                 ManualInput = string.Empty;
                 return;
             }
@@ -226,7 +258,10 @@ namespace Tenko.Native.ViewModels
                 };
 
                 _allHistory.Insert(0, record);
-                History.Insert(0, record);
+                if (MatchesSearch(record))
+                {
+                    History.Insert(0, record);
+                }
 
                 // 2秒間ハイライトする
                 record.IsRecentlyAdded = true;
