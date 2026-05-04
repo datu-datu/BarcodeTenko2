@@ -3,6 +3,8 @@ using Tenko.Native.ViewModels;
 
 namespace Tenko.Native.Models
 {
+    using System.Text.Json.Serialization;
+
     public class ScanRecord : ViewModelBase
     {
         private bool _isRecentlyAdded;
@@ -15,6 +17,7 @@ namespace Tenko.Native.Models
         public string StudentCode { get; set; } = string.Empty;
         public string Location { get; set; } = string.Empty;
 
+        [JsonIgnore]
         public bool IsRecentlyAdded
         {
             get => _isRecentlyAdded;
