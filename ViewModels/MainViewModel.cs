@@ -227,6 +227,17 @@ namespace Tenko.Native.ViewModels
 
                 _allHistory.Insert(0, record);
                 History.Insert(0, record);
+
+                // 2秒間ハイライトする
+                record.IsRecentlyAdded = true;
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                timer.Tick += (s, e) =>
+                {
+                    record.IsRecentlyAdded = false;
+                    timer.Stop();
+                };
+                timer.Start();
+
                 _historyService.SaveHistory(_allHistory);
                 _scanFileService.AppendLast5(CurrentLocation, last5);
             }

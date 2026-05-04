@@ -140,6 +140,15 @@
 
                     <DataGrid Grid.Row="1" ItemsSource="{Binding History}" AutoGenerateColumns="False" 
                             IsReadOnly="True" BorderThickness="0">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRecentlyAdded}" Value="True">
+                                        <Setter Property="Background" Value="#E1F5FE"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="時刻" Binding="{Binding FormattedTimestamp}" Width="120"/>
                             <DataGridTextColumn Header="バーコード" Binding="{Binding Barcode}" Width="*">
