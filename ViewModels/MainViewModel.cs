@@ -16,6 +16,7 @@ namespace Tenko.Native.ViewModels
         private readonly HistoryService _historyService;
         private readonly ScanFileService _scanFileService;
         private readonly NotificationService _notificationService;
+        private readonly StudentService _studentService;
 
         private string _manualInput = string.Empty;
         private string _currentLocation = string.Empty;
@@ -33,12 +34,14 @@ namespace Tenko.Native.ViewModels
             SettingsService settingsService,
             HistoryService historyService,
             ScanFileService scanFileService,
-            NotificationService notificationService)
+            NotificationService notificationService,
+            StudentService studentService)
         {
             _settingsService = settingsService;
             _historyService = historyService;
             _scanFileService = scanFileService;
             _notificationService = notificationService;
+            _studentService = studentService;
 
             foreach (var loc in _settingsService.Locations)
             {
@@ -126,6 +129,12 @@ namespace Tenko.Native.ViewModels
         private void LoadHistory()
         {
             _allHistory = _historyService.LoadHistory();
+            foreach (var record in _allHistory)
+            {
+                var (name, code) = _studentService.GetStudentInfo(record.Last5);
+                record.StudentName = name;
+                record.StudentCode = code;
+            }
             RefreshHistoryView();
         }
 
@@ -196,6 +205,7 @@ namespace Tenko.Native.ViewModels
             try
             {
                 ushort last5 = ushort.Parse(barcode.Length >= 5 ? barcode.Substring(barcode.Length - 5) : barcode);
+                var (name, code) = _studentService.GetStudentInfo(last5);
                 var record = new ScanRecord
                 {
                     // 同一ミリ秒の衝突回避のため Guid 断片を付与する。
@@ -203,6 +213,8 @@ namespace Tenko.Native.ViewModels
                     Timestamp = DateTime.Now,
                     Barcode = barcode,
                     Last5 = last5,
+                    StudentName = name,
+                    StudentCode = code,
                     Location = CurrentLocation
                 };
 
