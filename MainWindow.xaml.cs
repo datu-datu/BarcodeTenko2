@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Tenko.Native.Services;
 using Tenko.Native.ViewModels;
@@ -37,6 +38,20 @@ namespace Tenko.Native
             );
 
             this.DataContext = _viewModel;
+
+            notificationService.OnNotification += (s, e) =>
+            {
+                if (e.Type == NotificationType.Warning || e.Type == NotificationType.Error)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (FindResource("FlashRedStoryboard") is Storyboard sb)
+                        {
+                            sb.Begin(ManualInputBox);
+                        }
+                    });
+                }
+            };
 
             // 初期フォーカス
             this.Loaded += (s, e) => ManualInputBox.Focus();

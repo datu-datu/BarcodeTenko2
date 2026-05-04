@@ -12,6 +12,18 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <local:NotificationTypeToBrushConverter x:Key="TypeToBrush" />
+
+        <Storyboard x:Key="FlashRedStoryboard">
+            <ColorAnimationUsingKeyFrames Storyboard.TargetProperty="(Control.Background).(SolidColorBrush.Color)">
+                <EasingColorKeyFrame KeyTime="0:0:0.0" Value="White" />
+                <EasingColorKeyFrame KeyTime="0:0:0.1" Value="#FFFFCCCC" />
+                <EasingColorKeyFrame KeyTime="0:0:0.2" Value="White" />
+                <EasingColorKeyFrame KeyTime="0:0:0.3" Value="#FFFFCCCC" />
+                <EasingColorKeyFrame KeyTime="0:0:0.4" Value="White" />
+                <EasingColorKeyFrame KeyTime="0:0:0.5" Value="#FFFFCCCC" />
+                <EasingColorKeyFrame KeyTime="0:0:0.6" Value="White" />
+            </ColorAnimationUsingKeyFrames>
+        </Storyboard>
     </Window.Resources>
 
     <Grid>
@@ -139,8 +151,8 @@
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
-                            <DataGridTextColumn Header="出席番号" Binding="{Binding StudentCode}" Width="80"/>
-                            <DataGridTextColumn Header="名前" Binding="{Binding StudentName}" Width="100"/>
+                            <DataGridTextColumn Header="code" Binding="{Binding StudentCode}" Width="80"/>
+                            <DataGridTextColumn Header="name" Binding="{Binding StudentName}" Width="100"/>
                             <DataGridTextColumn Header="学籍番号" Binding="{Binding Last5, StringFormat={}{0:D5}}" Width="80"/>
                             <DataGridTemplateColumn Header="操作" Width="60">
                                 <DataGridTemplateColumn.CellTemplate>

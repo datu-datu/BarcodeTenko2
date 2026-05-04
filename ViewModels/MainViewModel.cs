@@ -180,10 +180,17 @@ namespace Tenko.Native.ViewModels
                 return;
             }
 
-            // 重複チェック (同一ロケーションで同一バーコード)
-            if (History.Any(h => h.Barcode == ManualInput))
+            // 重複チェック (同一ロケーションで同一の学籍番号下5桁)
+            if (!ushort.TryParse(ManualInput.Length >= 5 ? ManualInput.Substring(ManualInput.Length - 5) : ManualInput, out ushort last5))
             {
-                _notificationService.Warning("このバーコードは既にスキャン済みです。");
+                // ここに来ることは基本ない（事前に数字チェックと長さチェックがあるため）が、念のため。
+                _notificationService.Error("番号の解析に失敗しました。");
+                return;
+            }
+
+            if (History.Any(h => h.Last5 == last5))
+            {
+                _notificationService.Warning("この番号は既にスキャン済みです。");
                 // 重複でも一応入力をクリアするか、残すか。クリアしたほうが連続スキャンには向く。
                 ManualInput = string.Empty;
                 return;
