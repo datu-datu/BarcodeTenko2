@@ -16,6 +16,7 @@ namespace Tenko.Native.ViewModels
         private readonly HistoryService _historyService;
         private readonly ScanFileService _scanFileService;
         private readonly NotificationService _notificationService;
+        private readonly StudentService _studentService;
 
         private string _manualInput = string.Empty;
         private string _currentLocation = string.Empty;
@@ -33,12 +34,14 @@ namespace Tenko.Native.ViewModels
             SettingsService settingsService,
             HistoryService historyService,
             ScanFileService scanFileService,
-            NotificationService notificationService)
+            NotificationService notificationService,
+            StudentService studentService)
         {
             _settingsService = settingsService;
             _historyService = historyService;
             _scanFileService = scanFileService;
             _notificationService = notificationService;
+            _studentService = studentService;
 
             foreach (var loc in _settingsService.Locations)
             {
@@ -126,6 +129,12 @@ namespace Tenko.Native.ViewModels
         private void LoadHistory()
         {
             _allHistory = _historyService.LoadHistory();
+            foreach (var record in _allHistory)
+            {
+                var (name, code) = _studentService.GetStudentInfo(record.Last5);
+                record.StudentName = name;
+                record.StudentCode = code;
+            }
             RefreshHistoryView();
         }
 
@@ -171,10 +180,17 @@ namespace Tenko.Native.ViewModels
                 return;
             }
 
-            // 重複チェック (同一ロケーションで同一バーコード)
-            if (History.Any(h => h.Barcode == ManualInput))
+            // 重複チェック (同一ロケーションで同一の学籍番号下5桁)
+            if (!ushort.TryParse(ManualInput.Length >= 5 ? ManualInput.Substring(ManualInput.Length - 5) : ManualInput, out ushort last5))
             {
-                _notificationService.Warning("このバーコードは既にスキャン済みです。");
+                // ここに来ることは基本ない（事前に数字チェックと長さチェックがあるため）が、念のため。
+                _notificationService.Error("番号の解析に失敗しました。");
+                return;
+            }
+
+            if (History.Any(h => h.Last5 == last5))
+            {
+                _notificationService.Warning("この番号は既にスキャン済みです。");
                 // 重複でも一応入力をクリアするか、残すか。クリアしたほうが連続スキャンには向く。
                 ManualInput = string.Empty;
                 return;
@@ -196,6 +212,7 @@ namespace Tenko.Native.ViewModels
             try
             {
                 ushort last5 = ushort.Parse(barcode.Length >= 5 ? barcode.Substring(barcode.Length - 5) : barcode);
+                var (name, code) = _studentService.GetStudentInfo(last5);
                 var record = new ScanRecord
                 {
                     // 同一ミリ秒の衝突回避のため Guid 断片を付与する。
@@ -203,11 +220,24 @@ namespace Tenko.Native.ViewModels
                     Timestamp = DateTime.Now,
                     Barcode = barcode,
                     Last5 = last5,
+                    StudentName = name,
+                    StudentCode = code,
                     Location = CurrentLocation
                 };
 
                 _allHistory.Insert(0, record);
                 History.Insert(0, record);
+
+                // 2秒間ハイライトする
+                record.IsRecentlyAdded = true;
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                timer.Tick += (s, e) =>
+                {
+                    record.IsRecentlyAdded = false;
+                    timer.Stop();
+                };
+                timer.Start();
+
                 _historyService.SaveHistory(_allHistory);
                 _scanFileService.AppendLast5(CurrentLocation, last5);
             }
