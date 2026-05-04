@@ -139,8 +139,8 @@
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
-                            <DataGridTextColumn Header="code" Binding="{Binding StudentCode}" Width="80"/>
-                            <DataGridTextColumn Header="name" Binding="{Binding StudentName}" Width="100"/>
+                            <DataGridTextColumn Header="出席番号" Binding="{Binding StudentCode}" Width="80"/>
+                            <DataGridTextColumn Header="名前" Binding="{Binding StudentName}" Width="100"/>
                             <DataGridTextColumn Header="学籍番号" Binding="{Binding Last5, StringFormat={}{0:D5}}" Width="80"/>
                             <DataGridTemplateColumn Header="操作" Width="60">
                                 <DataGridTemplateColumn.CellTemplate>
