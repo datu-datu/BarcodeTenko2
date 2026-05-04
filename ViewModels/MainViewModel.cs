@@ -63,6 +63,7 @@ namespace Tenko.Native.ViewModels
             ExportBinCommand = new RelayCommand(_ => ExportBin());
             RenameBinCommand = new RelayCommand<string>(newName => RenameBin(newName));
             OpenCompleteModalCommand = new RelayCommand(_ => { if (IsLocationSet) ShowCompleteModal = true; });
+            ClearSearchCommand = new RelayCommand(_ => SearchText = string.Empty);
         }
 
         public string ManualInput
@@ -79,9 +80,12 @@ namespace Tenko.Native.ViewModels
                 if (SetProperty(ref _searchText, value))
                 {
                     RefreshHistoryView();
+                    OnPropertyChanged(nameof(IsFiltered));
                 }
             }
         }
+
+        public bool IsFiltered => !string.IsNullOrWhiteSpace(SearchText);
 
         public string CurrentLocation
         {
@@ -137,6 +141,7 @@ namespace Tenko.Native.ViewModels
         public ICommand ExportBinCommand { get; }
         public ICommand RenameBinCommand { get; }
         public ICommand OpenCompleteModalCommand { get; }
+        public ICommand ClearSearchCommand { get; }
 
         // 履歴ファイルの内容を UI コレクションへ反映する。
         private void LoadHistory()
