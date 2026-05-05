@@ -22,8 +22,8 @@ namespace Tenko.Native.Services
             return File.Exists(path) && new FileInfo(path).Length > 0;
         }
 
-        // Last5 を 4byte 値として末尾へ追記する。
-        public void AppendLast5(string location, int last5)
+        // Last5 を 2byte 値として末尾へ追記する。
+        public void AppendLast5(string location, ushort last5)
         {
             if (string.IsNullOrEmpty(location)) return;
             string path = GetFilePath(location);
@@ -35,7 +35,7 @@ namespace Tenko.Native.Services
         }
 
         // 指定した Last5 の最後の一致を 1 件だけ削除する。
-        public void RemoveLast5(string location, int last5)
+        public void RemoveLast5(string location, ushort last5)
         {
             if (string.IsNullOrEmpty(location)) return;
             string path = GetFilePath(location);
@@ -44,19 +44,19 @@ namespace Tenko.Native.Services
             try
             {
                 byte[] allBytes = File.ReadAllBytes(path);
-                if (allBytes.Length % 4 != 0)
+                if (allBytes.Length % 2 != 0)
                 {
                     // 壊れている場合は読み飛ばすか、例外を投げて上位でハンドリングする
                     return;
                 }
 
-                List<int> values = new List<int>();
+                List<ushort> values = new List<ushort>();
                 using (var ms = new MemoryStream(allBytes))
                 using (var reader = new BinaryReader(ms))
                 {
                     while (ms.Position < ms.Length)
                     {
-                        values.Add(reader.ReadInt32());
+                        values.Add(reader.ReadUInt16());
                     }
                 }
 

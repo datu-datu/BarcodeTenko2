@@ -10,7 +10,7 @@ namespace Tenko.Native.Models
         public string Id { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; }
         public string Barcode { get; set; } = string.Empty;
-        public int Last5 { get; set; }
+        public ushort Last5 { get; set; }
         public string Location { get; set; } = string.Empty;
 
         // Metadata resolved from student data

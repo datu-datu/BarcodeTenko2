@@ -8,7 +8,7 @@ namespace Tenko.Native.Services
 {
     public class StudentInfo
     {
-        public int StudentNumber { get; set; }
+        public ushort StudentNumber { get; set; }
         public string Id { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
         public string Code { get; set; } = string.Empty;
@@ -16,7 +16,7 @@ namespace Tenko.Native.Services
 
     public class StudentService
     {
-        private readonly Dictionary<int, StudentInfo> _students = new();
+        private readonly Dictionary<ushort, StudentInfo> _students = new();
 
         public StudentService()
         {
@@ -37,7 +37,7 @@ namespace Tenko.Native.Services
                     var parts = line.Split(',');
                     if (parts.Length >= 4)
                     {
-                        if (int.TryParse(parts[0], out int studentNum))
+                        if (ushort.TryParse(parts[0], out ushort studentNum))
                         {
                             _students[studentNum] = new StudentInfo
                             {
@@ -56,7 +56,7 @@ namespace Tenko.Native.Services
             }
         }
 
-        public StudentInfo? GetStudent(int studentNumber)
+        public StudentInfo? GetStudent(ushort studentNumber)
         {
             return _students.TryGetValue(studentNumber, out var student) ? student : null;
         }

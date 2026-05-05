@@ -183,7 +183,7 @@ namespace Tenko.Native.ViewModels
                 return;
             }
 
-            if (!int.TryParse(ManualInput.Length >= 5 ? ManualInput.Substring(ManualInput.Length - 5) : ManualInput, out int last5))
+            if (!ushort.TryParse(ManualInput.Length >= 5 ? ManualInput.Substring(ManualInput.Length - 5) : ManualInput, out ushort last5))
             {
                 _notificationService.Error("入力値が正しくありません。");
                 return;
@@ -212,7 +212,7 @@ namespace Tenko.Native.ViewModels
 
             try
             {
-                if (!int.TryParse(barcode.Length >= 5 ? barcode.Substring(barcode.Length - 5) : barcode, out int last5))
+                if (!ushort.TryParse(barcode.Length >= 5 ? barcode.Substring(barcode.Length - 5) : barcode, out ushort last5))
                 {
                     _notificationService.Error("スキャンデータ解析失敗");
                     return;
