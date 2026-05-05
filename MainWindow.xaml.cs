@@ -41,6 +41,12 @@ namespace Tenko.Native
             // 初期フォーカス
             this.Loaded += (s, e) => ManualInputBox.Focus();
 
+            _viewModel.FocusRequested += (s, e) =>
+            {
+                ManualInputBox.Focus();
+                ManualInputBox.SelectAll();
+            };
+
             // Set up live clock for bottom-left
             _clockTimer = new DispatcherTimer();
             _clockTimer.Interval = TimeSpan.FromSeconds(1);

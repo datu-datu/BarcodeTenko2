@@ -27,6 +27,8 @@ namespace Tenko.Native.ViewModels
         private bool _isNotificationVisible = false;
         private List<ScanRecord> _allHistory = new();
 
+        public event EventHandler? FocusRequested;
+
         public ObservableCollection<ScanRecord> History { get; } = new();
         public ObservableCollection<string> Locations { get; } = new();
 
@@ -161,13 +163,15 @@ namespace Tenko.Native.ViewModels
         // 手入力バーコードを検証し、要件を満たす場合のみスキャン処理を実行する。
         private void SubmitManualInput()
         {
-            if (string.IsNullOrWhiteSpace(ManualInput)) return;
-
-            if (string.IsNullOrEmpty(CurrentLocation))
+            try
             {
-                _notificationService.Warning("スキャン場所を選択してください。");
-                return;
-            }
+                if (string.IsNullOrWhiteSpace(ManualInput)) return;
+
+                if (string.IsNullOrEmpty(CurrentLocation))
+                {
+                    _notificationService.Warning("スキャン場所を選択してください。");
+                    return;
+                }
             
             // 数字以外は受け付けない。
             if (!ManualInput.All(char.IsDigit))
@@ -197,8 +201,13 @@ namespace Tenko.Native.ViewModels
                 return;
             }
 
-            ProcessScan(ManualInput);
-            ManualInput = string.Empty;
+                ProcessScan(ManualInput);
+                ManualInput = string.Empty;
+            }
+            finally
+            {
+                FocusRequested?.Invoke(this, EventArgs.Empty);
+            }
         }
 
         // スキャン情報を履歴と bin に追記する。
@@ -281,6 +290,10 @@ namespace Tenko.Native.ViewModels
             {
                 _notificationService.Error($"レコード削除失敗: {ex.Message}");
             }
+            finally
+            {
+                FocusRequested?.Invoke(this, EventArgs.Empty);
+            }
         }
 
         // 現在ロケーションの履歴と bin ファイルを削除する。
@@ -302,6 +315,7 @@ namespace Tenko.Native.ViewModels
             _scanFileService.DeleteBin(CurrentLocation);
             CheckBinFile();
             _notificationService.Success($"現在の「{CurrentLocation}」の履歴を削除しました。");
+            FocusRequested?.Invoke(this, EventArgs.Empty);
         }
 
         // 現在ロケーションの既存 bin を別名へ退避し、履歴を初期化する。
@@ -342,12 +356,13 @@ namespace Tenko.Native.ViewModels
             try
             {
                 string filename = $"scan_{CurrentLocation}_{DateTime.Now:yyyyMMddHHmm}.csv";
-                using (var writer = new StreamWriter(filename))
+                using (var writer = new StreamWriter(filename, false, System.Text.Encoding.UTF8))
                 {
-                    writer.WriteLine("Timestamp,ID");
+                    writer.WriteLine("時刻,出席番号,氏名,学籍番号下5桁");
                     foreach (var r in History)
                     {
-                        writer.WriteLine($"{r.FormattedTimestamp},{r.Last5:D5}");
+                        string escapedName = r.Name.Contains(",") ? $"\"{r.Name}\"" : r.Name;
+                        writer.WriteLine($"{r.FormattedTimestamp},{r.Code},{escapedName},{r.Last5:D5}");
                     }
                 }
                 _notificationService.Success($"{filename} を出力しました。");
@@ -355,6 +370,10 @@ namespace Tenko.Native.ViewModels
             catch (Exception ex)
             {
                 _notificationService.Error($"CSV出力失敗: {ex.Message}");
+            }
+            finally
+            {
+                FocusRequested?.Invoke(this, EventArgs.Empty);
             }
         }
 
@@ -378,6 +397,10 @@ namespace Tenko.Native.ViewModels
             catch (Exception ex)
             {
                 _notificationService.Error($"BIN出力失敗: {ex.Message}");
+            }
+            finally
+            {
+                FocusRequested?.Invoke(this, EventArgs.Empty);
             }
         }
 

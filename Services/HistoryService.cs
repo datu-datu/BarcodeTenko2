@@ -41,7 +41,8 @@ namespace Tenko.Native.Services
         {
             try
             {
-                string json = JsonSerializer.Serialize(history);
+                var options = new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+                string json = JsonSerializer.Serialize(history, options);
                 File.WriteAllText(_historyPath, json);
             }
             catch (Exception ex)

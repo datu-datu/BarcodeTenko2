@@ -74,13 +74,13 @@
                     <StackPanel>
                         <TextBlock Text="入力" FontWeight="Bold" Margin="0,0,0,10" Foreground="{StaticResource TextPrimaryBrush}"/>
                         
-                        <TextBox x:Name="ManualInputBox" Style="{StaticResource ModernTextBox}" 
+                        <TextBox x:Name="ManualInputBox"
                                 Text="{Binding ManualInput, UpdateSourceTrigger=PropertyChanged}" 
                                 IsEnabled="{Binding IsLocationSet}"
                                 FontSize="16"
                                 KeyDown="ManualInputBox_KeyDown" 
                                 Height="30" Margin="0,0,0,5" VerticalContentAlignment="Center">
-                            <TextBox.Resources>
+                            <TextBox.Style>
                                 <Style TargetType="TextBox" BasedOn="{StaticResource ModernTextBox}">
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding NotificationType}" Value="Error">
@@ -101,7 +101,7 @@
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
-                            </TextBox.Resources>
+                            </TextBox.Style>
                         </TextBox>
                         
                         <Button Content="決定" Command="{Binding SubmitCommand}" 
