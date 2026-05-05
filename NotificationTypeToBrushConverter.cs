@@ -17,7 +17,7 @@ namespace Tenko.Native
                     NotificationType.Success => Brushes.Green,
                     NotificationType.Warning => Brushes.Orange,
                     NotificationType.Error => Brushes.Red,
-                    _ => Brushes.Gray
+                    _ => Brushes.Transparent
                 };
             }
             return Brushes.Gray;

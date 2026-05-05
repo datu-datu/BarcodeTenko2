@@ -12,6 +12,16 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <local:NotificationTypeToBrushConverter x:Key="TypeToBrush" />
+
+        <Storyboard x:Key="FlashErrorAnimation">
+            <ColorAnimationUsingKeyFrames Storyboard.TargetProperty="(Control.Background).(SolidColorBrush.Color)"
+                                        Storyboard.TargetName="ManualInputBox">
+                <EasingColorKeyFrame KeyTime="0:0:0.1" Value="#FFD13438"/>
+                <EasingColorKeyFrame KeyTime="0:0:0.4" Value="White"/>
+                <EasingColorKeyFrame KeyTime="0:0:0.5" Value="#FFD13438"/>
+                <EasingColorKeyFrame KeyTime="0:0:0.8" Value="White"/>
+            </ColorAnimationUsingKeyFrames>
+        </Storyboard>
     </Window.Resources>
 
     <Grid>
@@ -69,7 +79,30 @@
                                 IsEnabled="{Binding IsLocationSet}"
                                 FontSize="16"
                                 KeyDown="ManualInputBox_KeyDown" 
-                                Height="30" Margin="0,0,0,5" VerticalContentAlignment="Center"/>
+                                Height="30" Margin="0,0,0,5" VerticalContentAlignment="Center">
+                            <TextBox.Resources>
+                                <Style TargetType="TextBox" BasedOn="{StaticResource ModernTextBox}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding NotificationType}" Value="Error">
+                                            <DataTrigger.EnterActions>
+                                                <BeginStoryboard x:Name="ErrorStoryboard" Storyboard="{StaticResource FlashErrorAnimation}"/>
+                                            </DataTrigger.EnterActions>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding NotificationType}" Value="Warning">
+                                            <DataTrigger.EnterActions>
+                                                <BeginStoryboard x:Name="WarningStoryboard" Storyboard="{StaticResource FlashErrorAnimation}"/>
+                                            </DataTrigger.EnterActions>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding NotificationType}" Value="None">
+                                            <DataTrigger.EnterActions>
+                                                <StopStoryboard BeginStoryboardName="ErrorStoryboard"/>
+                                                <StopStoryboard BeginStoryboardName="WarningStoryboard"/>
+                                            </DataTrigger.EnterActions>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Resources>
+                        </TextBox>
                         
                         <Button Content="決定" Command="{Binding SubmitCommand}" 
                                 IsEnabled="{Binding IsLocationSet}"
@@ -128,18 +161,20 @@
 
                     <DataGrid Grid.Row="1" ItemsSource="{Binding History}" AutoGenerateColumns="False" 
                             IsReadOnly="True" BorderThickness="0">
+                        <DataGrid.Resources>
+                            <Style TargetType="DataGridRow">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRecentlyAdded}" Value="True">
+                                        <Setter Property="Background" Value="#E1F5FE"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.Resources>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="時刻" Binding="{Binding FormattedTimestamp}" Width="120"/>
-                            <DataGridTextColumn Header="バーコード" Binding="{Binding Barcode}" Width="*">
-                                <DataGridTextColumn.ElementStyle>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="FontFamily" Value="Consolas"/>
-                                        <Setter Property="VerticalAlignment" Value="Center"/>
-                                        <Setter Property="Padding" Value="5,0"/>
-                                    </Style>
-                                </DataGridTextColumn.ElementStyle>
-                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="出席番号" Binding="{Binding Code}" Width="80"/>
+                            <DataGridTextColumn Header="氏名" Binding="{Binding Name}" Width="*"/>
                             <DataGridTextColumn Header="学籍番号" Binding="{Binding Last5, StringFormat={}{0:D5}}" Width="80"/>
+                            <DataGridTextColumn Header="時刻" Binding="{Binding FormattedTimestamp}" Width="120"/>
                             <DataGridTemplateColumn Header="操作" Width="60">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
@@ -156,10 +191,12 @@
         </Grid>
 
         <!-- Status Bar Notification -->
-        <StatusBar Grid.Row="2" Background="{StaticResource BackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+        <StatusBar Grid.Row="2" Background="{Binding NotificationType, Converter={StaticResource TypeToBrush}}"
+                   BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
+                   Visibility="{Binding IsNotificationVisible, Converter={StaticResource BoolToVis}}">
             <StatusBarItem>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{Binding NotificationMessage}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding NotificationMessage}" VerticalAlignment="Center" Foreground="White" FontWeight="Bold"/>
                 </StackPanel>
             </StatusBarItem>
         </StatusBar>

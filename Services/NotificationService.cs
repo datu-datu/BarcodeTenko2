@@ -4,6 +4,7 @@ namespace Tenko.Native.Services
 {
     public enum NotificationType
     {
+        None,
         Success,
         Warning,
         Error

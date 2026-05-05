@@ -26,12 +26,14 @@ namespace Tenko.Native
             var historyService = new HistoryService();
             var scanFileService = new ScanFileService();
             var notificationService = new NotificationService();
+            var studentService = new StudentService();
 
             _viewModel = new MainViewModel(
                 settingsService,
                 historyService,
                 scanFileService,
-                notificationService
+                notificationService,
+                studentService
             );
 
             this.DataContext = _viewModel;

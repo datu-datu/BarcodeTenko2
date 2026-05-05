@@ -22,8 +22,8 @@ namespace Tenko.Native.Services
             return File.Exists(path) && new FileInfo(path).Length > 0;
         }
 
-        // Last5 を 2byte 値として末尾へ追記する。
-        public void AppendLast5(string location, ushort last5)
+        // Last5 を 4byte 値として末尾へ追記する。
+        public void AppendLast5(string location, int last5)
         {
             if (string.IsNullOrEmpty(location)) return;
             string path = GetFilePath(location);
@@ -35,7 +35,7 @@ namespace Tenko.Native.Services
         }
 
         // 指定した Last5 の最後の一致を 1 件だけ削除する。
-        public void RemoveLast5(string location, ushort last5)
+        public void RemoveLast5(string location, int last5)
         {
             if (string.IsNullOrEmpty(location)) return;
             string path = GetFilePath(location);
@@ -44,18 +44,20 @@ namespace Tenko.Native.Services
             try
             {
                 byte[] allBytes = File.ReadAllBytes(path);
-                if (allBytes.Length % 2 != 0)
+                if (allBytes.Length % 4 != 0)
                 {
                     // 壊れている場合は読み飛ばすか、例外を投げて上位でハンドリングする
                     return;
                 }
 
-                List<ushort> values = new List<ushort>();
-                for (int i = 0; i < allBytes.Length; i += 2)
+                List<int> values = new List<int>();
+                using (var ms = new MemoryStream(allBytes))
+                using (var reader = new BinaryReader(ms))
                 {
-                    // BitConverter はシステム依存だが、x86/x64 は Little Endian。
-                    // 明示的に制御する場合は BinaryReader 等を使うべき。
-                    values.Add(BitConverter.ToUInt16(allBytes, i));
+                    while (ms.Position < ms.Length)
+                    {
+                        values.Add(reader.ReadInt32());
+                    }
                 }
 
                 // 最後に追加された同値を削除するため、末尾側から探索する。
@@ -65,7 +67,14 @@ namespace Tenko.Native.Services
                     values.RemoveAt(index);
                     // 追記中かもしれないので本来はロック等考慮すべきだが、
                     // 現状はシンプルに書き戻す。
-                    File.WriteAllBytes(path, values.SelectMany(v => BitConverter.GetBytes(v)).ToArray());
+                    using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+                    using (var writer = new BinaryWriter(stream))
+                    {
+                        foreach (var v in values)
+                        {
+                            writer.Write(v);
+                        }
+                    }
                 }
             }
             catch (IOException)
