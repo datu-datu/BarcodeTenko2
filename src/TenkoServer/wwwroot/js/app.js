@@ -88,6 +88,12 @@ function setupEventListeners() {
     // 再読み込みボタン
     document.getElementById('refreshBtn').addEventListener('click', () => refreshAllData());
 
+    // セッション締めボタン
+    document.getElementById('closeSessionBtn').addEventListener('click', closeSession);
+
+    // セッション履歴の更新ボタン
+    document.getElementById('refreshSessionsBtn').addEventListener('click', loadSessions);
+
     // 検索入力 (デバウンス)
     let searchTimeout = null;
     document.getElementById('searchInput').addEventListener('input', () => {
@@ -128,6 +134,7 @@ function setupEventListeners() {
 
             if (targetId === 'logsTab') loadLogs();
             if (targetId === 'unverifiedTab') loadUnverified();
+            if (targetId === 'sessionsTab') loadSessions();
         });
     });
 
@@ -273,6 +280,84 @@ async function sendSingleNotification(scanId) {
     } catch (err) {
         alert('サーバーとの通信に失敗しました。');
     }
+}
+
+/**
+ * 現在のセッションを締めてアーカイブへ退避する。
+ * 締め後は重複チェックがリセットされ、同じ学生も再度点呼できる。
+ */
+async function closeSession() {
+    const now = new Date();
+    const defaultLabel = now.getHours() < 12 ? '午前' : '午後';
+    const label = prompt('セッション名を入力してください（例: 午前 / 午後）', defaultLabel);
+    if (label === null) return;
+
+    if (!confirm(`現在のセッションの点呼データを「${label || '(名称未設定)'}」として締めますか？\n締め後、スキャン履歴・未点呼リストは次のセッション用にリセットされます。`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/dashboard/sessions/close', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label: label })
+        });
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(data.message || 'セッション締めに失敗しました。');
+            return;
+        }
+
+        alert(data.message || 'セッションを締めました。');
+        await refreshAllData();
+        loadSessions();
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+async function loadSessions() {
+    const res = await fetch('/api/v1/dashboard/sessions');
+    if (res.status === 401) { window.location.href = '/login.html'; return; }
+    if (!res.ok) return;
+
+    const sessions = await res.json();
+    const tbody = document.getElementById('sessionsTableBody');
+
+    if (sessions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">締め済みセッションはありません</td></tr>';
+        return;
+    }
+
+    let html = '';
+    for (const s of sessions) {
+        const closedAtStr = s.closedAt ? new Date(s.closedAt).toLocaleString('ja-JP') : '-';
+        const downloadCell = `
+            <button class="btn btn-xs btn-outline session-dl-btn" data-session-id="${escapeHtml(s.sessionId)}" data-format="csv">CSV</button>
+            <button class="btn btn-xs btn-outline session-dl-btn" data-session-id="${escapeHtml(s.sessionId)}" data-format="bin">BIN</button>
+        `;
+        html += `
+            <tr>
+                <td class="font-mono">${escapeHtml(closedAtStr)}</td>
+                <td><span class="badge badge-info">${escapeHtml(s.label || '(名称未設定)')}</span></td>
+                <td class="font-mono">${escapeHtml(String(s.scanCount))} 件</td>
+                <td>${downloadCell}</td>
+            </tr>
+        `;
+    }
+    tbody.innerHTML = html;
+
+    tbody.querySelectorAll('.session-dl-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const sessionId = e.currentTarget.getAttribute('data-session-id');
+            const format = e.currentTarget.getAttribute('data-format');
+            if (sessionId && format) {
+                window.location.href = `/api/v1/dashboard/export/${format}?session=${encodeURIComponent(sessionId)}`;
+            }
+        });
+    });
 }
 
 async function refreshAllData(isBackground = false) {

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
@@ -214,6 +216,177 @@ namespace Tenko.Tests
             Assert.Equal(4, binFile.FileContents.Length);
             Assert.Equal(21021, BitConverter.ToUInt16(binFile.FileContents, 0));
             Assert.Equal(23213, BitConverter.ToUInt16(binFile.FileContents, 2));
+        }
+
+        [Fact]
+        public async Task DashboardController_SessionClose_ArchivesAndAllowsRescan()
+        {
+            string masterDir = CreateStudentMasterDirectory();
+            try
+            {
+                var env = new MockWebHostEnvironment { ContentRootPath = masterDir };
+                var studentMaster = new StudentMasterService(Options.Create(_options), NullLogger<StudentMasterService>.Instance, env);
+                Assert.Equal(2, studentMaster.GetAllStudents().Count);
+
+                var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+                var queue = new NotificationQueue();
+                var scansController = new ScansController(_db, queue, notifState, studentMaster, NullLogger<ScansController>.Instance);
+                var dashboard = new DashboardController(_db, studentMaster, notifState, queue);
+
+                string today = DateTime.Today.ToString("yyyy-MM-dd");
+
+                static ScanBatchRequestDto BatchOf(string id, ushort last5, int hour) => new ScanBatchRequestDto
+                {
+                    ClientId = "client-test",
+                    Records = new List<ScanItemDto>
+                    {
+                        new ScanItemDto
+                        {
+                            Id = id,
+                            Barcode = last5.ToString(),
+                            Last5 = last5,
+                            Location = "2棟2階",
+                            Timestamp = DateTime.Today.AddHours(hour)
+                        }
+                    }
+                };
+
+                // 1) 午前セッション: 点呼は受諾される
+                var r1 = await scansController.PostScans(BatchOf("am-scan-1", 21021, 9));
+                var resp1 = Assert.IsType<ScanBatchResponseDto>(Assert.IsType<OkObjectResult>(r1.Result).Value);
+                Assert.Equal(1, resp1.AcceptedCount);
+
+                // 同一セッション内の再スキャンは重複扱い
+                var r2 = await scansController.PostScans(BatchOf("am-scan-1", 21021, 9));
+                var resp2 = Assert.IsType<ScanBatchResponseDto>(Assert.IsType<OkObjectResult>(r2.Result).Value);
+                Assert.Equal(0, resp2.AcceptedCount);
+                Assert.Equal(1, resp2.DuplicateCount);
+
+                // 締め前: 21021 は現在セッションで点呼済み → 未点呼リストに含まれない
+                var uvBefore = await dashboard.GetUnverified(today);
+                var uvListBefore = Assert.IsType<List<UnverifiedStudentDto>>(Assert.IsType<OkObjectResult>(uvBefore.Result).Value);
+                Assert.DoesNotContain(uvListBefore, u => u.StudentNumber == 21021);
+
+                // 通知キューを空にする
+                await queue.DequeueNotificationAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+
+                // 2) セッション締め → 全データがアーカイブへ退避される
+                var closeResult = await dashboard.CloseSession(new CloseSessionRequestDto { Label = "午前" });
+                var closeResp = Assert.IsType<CloseSessionResponseDto>(Assert.IsType<OkObjectResult>(closeResult.Result).Value);
+                Assert.True(closeResp.Success);
+                Assert.Equal(1, closeResp.MovedCount);
+                Assert.False(string.IsNullOrEmpty(closeResp.SessionId));
+
+                Assert.Equal(0, await _db.Scans.CountAsync());
+                Assert.Equal(1, await _db.ArchivedScans.CountAsync());
+                var archivedRow = await _db.ArchivedScans.SingleAsync();
+                Assert.Equal("am-scan-1", archivedRow.Id);
+                Assert.Equal("午前", archivedRow.SessionLabel);
+                Assert.Equal(closeResp.SessionId, archivedRow.SessionId);
+                Assert.Equal(today, archivedRow.ScanDate);
+
+                // 3) 締め直後（再スキャン前）: 21021 は現在セッションで未点呼扱いに戻る
+                var uvReopen = await dashboard.GetUnverified(today);
+                var uvListReopen = Assert.IsType<List<UnverifiedStudentDto>>(Assert.IsType<OkObjectResult>(uvReopen.Result).Value);
+                Assert.Contains(uvListReopen, u => u.StudentNumber == 21021);
+
+                // 4) 午後セッション: 同一学生の再スキャンが受諾され、通知もキューに入る (BUG-02 解消)
+                var r3 = await scansController.PostScans(BatchOf("pm-scan-1", 21021, 13));
+                var resp3 = Assert.IsType<ScanBatchResponseDto>(Assert.IsType<OkObjectResult>(r3.Result).Value);
+                Assert.Equal(1, resp3.AcceptedCount);
+                Assert.Equal(0, resp3.DuplicateCount);
+                Assert.Equal(1, resp3.NotificationQueuedCount);
+
+                // 5) 午後スキャン後は 21021 は再び点呼済みになる
+                var uvAfterPm = await dashboard.GetUnverified(today);
+                var uvListAfterPm = Assert.IsType<List<UnverifiedStudentDto>>(Assert.IsType<OkObjectResult>(uvAfterPm.Result).Value);
+                Assert.DoesNotContain(uvListAfterPm, u => u.StudentNumber == 21021);
+
+                // 6) サマリーはアクティブセッション基準（締め後なので午後の1件のみ）
+                var summaryResult = await dashboard.GetSummary(today);
+                var summary = Assert.IsType<DashboardSummaryDto>(Assert.IsType<OkObjectResult>(summaryResult.Result).Value);
+                Assert.Equal(1, summary.TotalScansToday);
+                Assert.Equal(1, summary.UniqueStudentsToday);
+
+                // 7) セッション一覧
+                var sessionsResult = await dashboard.GetSessions();
+                var sessions = Assert.IsType<List<SessionSummaryDto>>(Assert.IsType<OkObjectResult>(sessionsResult.Result).Value);
+                Assert.Single(sessions);
+                Assert.Equal("午前", sessions[0].Label);
+                Assert.Equal(1, sessions[0].ScanCount);
+                Assert.Equal(closeResp.SessionId, sessions[0].SessionId);
+
+                // 8) エクスポート: session 指定時はアーカイブのみ
+                var csvSession = await dashboard.ExportCsv(null, null, closeResp.SessionId);
+                var csvFile = Assert.IsType<FileContentResult>(csvSession);
+                string csvText = Encoding.UTF8.GetString(csvFile.FileContents);
+                Assert.Contains("太郎 花子", csvText);
+                Assert.Equal(2, csvText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length); // header + 1 row
+
+                // 9) エクスポート: date 指定時はアクティブ + アーカイブを合算（午前+午後 = 2件）
+                var binDate = await dashboard.ExportBin(today, null, null);
+                var binFile = Assert.IsType<FileContentResult>(binDate);
+                Assert.Equal(4, binFile.FileContents.Length);
+                Assert.Equal(21021, BitConverter.ToUInt16(binFile.FileContents, 0));
+                Assert.Equal(21021, BitConverter.ToUInt16(binFile.FileContents, 2));
+            }
+            finally
+            {
+                if (Directory.Exists(masterDir)) Directory.Delete(masterDir, true);
+            }
+        }
+
+        /// <summary>
+        /// テスト用の学生マスタ (students.enc + students.passphrase) を一時ディレクトリに生成する。
+        /// v2 形式 (AES-CBC + HMAC-SHA256, PBKDF2 200k) をツールと同じ手順で暗号化する。
+        /// </summary>
+        private static string CreateStudentMasterDirectory()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "TenkoMaster_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(dir, "data"));
+
+            const string passphrase = "test-passphrase";
+            const int keySize = 32;
+            string csv = "student_number,name,code\n21021,太郎 花子,4D23\n23213,次郎 美咲,2M15\n";
+
+            byte[] salt = new byte[16];
+            byte[] iv = new byte[16];
+
+            using var kdf = new Rfc2898DeriveBytes(passphrase, salt, 200_000, HashAlgorithmName.SHA256);
+            byte[] encKey = kdf.GetBytes(keySize);
+            byte[] macKey = kdf.GetBytes(keySize);
+
+            using var aes = Aes.Create();
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+            aes.Key = encKey;
+            aes.IV = iv;
+            using var encryptor = aes.CreateEncryptor();
+            byte[] plain = Encoding.UTF8.GetBytes(csv);
+            byte[] cipher = encryptor.TransformFinalBlock(plain, 0, plain.Length);
+
+            byte[] magic = Encoding.ASCII.GetBytes("TNKS");
+            byte[] payload = new byte[magic.Length + 1 + salt.Length + iv.Length + cipher.Length];
+            int offset = 0;
+            Array.Copy(magic, 0, payload, offset, magic.Length);
+            offset += magic.Length;
+            payload[offset++] = 2; // FileVersionAesCbcHmac
+            Array.Copy(salt, 0, payload, offset, salt.Length);
+            offset += salt.Length;
+            Array.Copy(iv, 0, payload, offset, iv.Length);
+            offset += iv.Length;
+            Array.Copy(cipher, 0, payload, offset, cipher.Length);
+
+            using var hmac = new HMACSHA256(macKey);
+            byte[] mac = hmac.ComputeHash(payload);
+
+            byte[] output = new byte[payload.Length + mac.Length];
+            Array.Copy(payload, 0, output, 0, payload.Length);
+            Array.Copy(mac, 0, output, payload.Length, mac.Length);
+
+            File.WriteAllBytes(Path.Combine(dir, "data", "students.enc"), output);
+            File.WriteAllText(Path.Combine(dir, "data", "students.passphrase"), passphrase);
+            return dir;
         }
 
         [Fact]

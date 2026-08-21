@@ -37,6 +37,7 @@
             <div class="filter-group">
                 <input type="text" id="searchInput" class="input-control" placeholder="氏名・番号・場所で検索..." style="min-width: 240px;">
                 <button id="refreshBtn" class="btn btn-primary">再読み込み</button>
+                <button id="closeSessionBtn" class="btn btn-outline" title="現在のセッションの点呼データをアーカイブし、重複チェックをリセットします（次の点呼を開始できます）">セッション締め</button>
             </div>
             <div class="notification-control-panel">
                 <div class="notification-mode-group">
@@ -81,6 +82,7 @@
         <nav class="tabs-nav">
             <button class="tab-btn active" data-tab="scansTab">スキャン履歴一覧</button>
             <button class="tab-btn" data-tab="unverifiedTab">未点呼者リスト (<span id="unverifiedTabBadge">0</span>)</button>
+            <button class="tab-btn" data-tab="sessionsTab">セッション履歴</button>
             <button class="tab-btn" data-tab="logsTab">通知送信ログ</button>
             <button class="tab-btn" data-tab="exportTab">データエクスポート</button>
         </nav>
@@ -90,7 +92,7 @@
             <div class="card-header-flex">
                 <div>
                     <h2 style="font-size: 16px;">スキャン履歴 (<span id="scansCountBadge">0</span>件)</h2>
-                    <div style="font-size: 12px; color: var(--text-muted);">※ 最新の点呼が上に表示されます</div>
+                    <div style="font-size: 12px; color: var(--text-muted);">※ 現在のセッションの点呼データを表示します（最新が上）。締め済みデータは「セッション履歴」タブから</div>
                 </div>
             </div>
             <div class="table-responsive">
@@ -118,7 +120,7 @@
             <div class="card-header-flex">
                 <div>
                     <h2 style="font-size: 16px;">未点呼の学生一覧</h2>
-                    <p style="font-size: 12px; color: var(--text-muted);">学生マスタに登録されており、本日まだ点呼が記録されていない学生です</p>
+                    <p style="font-size: 12px; color: var(--text-muted);">現在のセッションでまだ点呼が記録されていない学生です（セッション締め後はリセットされます）</p>
                 </div>
                 <button id="copyUnverifiedEmailsBtn" class="btn btn-outline" style="font-size: 12px;">未点呼者メール一覧をコピー</button>
             </div>
@@ -140,7 +142,33 @@
             </div>
         </section>
 
-        <!-- Tab 3: Notification Logs -->
+        <!-- Tab 3: Session History -->
+        <section id="sessionsTab" class="tab-content content-card" style="display: none;">
+            <div class="card-header-flex">
+                <div>
+                    <h2 style="font-size: 16px;">締め済みセッション履歴</h2>
+                    <p style="font-size: 12px; color: var(--text-muted);">「セッション締め」でアーカイブされた点呼データです。各セッション単位でダウンロードできます。</p>
+                </div>
+                <button id="refreshSessionsBtn" class="btn btn-outline" style="font-size: 12px;">一覧更新</button>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>締め時刻</th>
+                            <th>セッション名</th>
+                            <th>件数</th>
+                            <th>ダウンロード</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessionsTableBody">
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Tab 4: Notification Logs -->
         <section id="logsTab" class="tab-content content-card" style="display: none;">
             <div class="card-header-flex">
                 <div>
@@ -171,7 +199,7 @@
             </div>
         </section>
 
-        <!-- Tab 4: Export -->
+        <!-- Tab 5: Export -->
         <section id="exportTab" class="tab-content content-card" style="display: none;">
             <h2 style="font-size: 16px; margin-bottom: 12px;">全拠点集約データ エクスポート</h2>
             <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">

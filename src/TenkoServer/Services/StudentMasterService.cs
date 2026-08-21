@@ -95,15 +95,53 @@ namespace TenkoServer.Services
 
         private void LoadStudents()
         {
-            // 探索パス: 実行ディレクトリ/data/students.enc, WebRootPath/data/students.enc, コンテンツルート/data/students.enc
-            var candidates = new[]
+            // 探索ディレクトリ: 実行ディレクトリ, コンテンツルート, コンテンツルートの2階層上
+            var candidateDirs = new[]
             {
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", EncryptedStudentsFileName),
-                Path.Combine(_env.ContentRootPath, "data", EncryptedStudentsFileName),
-                Path.Combine(_env.ContentRootPath, "..", "..", "data", EncryptedStudentsFileName)
+                AppDomain.CurrentDomain.BaseDirectory,
+                _env.ContentRootPath,
+                Path.GetFullPath(Path.Combine(_env.ContentRootPath, "..", ".."))
             };
 
-            string? targetPath = candidates.FirstOrDefault(File.Exists);
+            string? targetPath = null;
+            string? passphrase = null;
+
+            if (!string.IsNullOrWhiteSpace(_options.StudentsPassphrase))
+            {
+                // パスフレーズは設定値を使用し、暗号ファイルは最初に見つかったものを使う
+                targetPath = candidateDirs
+                    .Select(d => Path.Combine(d, "data", EncryptedStudentsFileName))
+                    .FirstOrDefault(File.Exists);
+                passphrase = _options.StudentsPassphrase;
+            }
+            else
+            {
+                // passphrase ファイルから読む場合は、enc と同一ディレクトリのペアを最優先で探す。
+                // 別々のディレクトリから採用すると復号に失敗するためである。
+                targetPath = candidateDirs
+                    .Where(d => File.Exists(Path.Combine(d, "data", EncryptedStudentsFileName))
+                             && File.Exists(Path.Combine(d, "data", "students.passphrase")))
+                    .Select(d => Path.Combine(d, "data", EncryptedStudentsFileName))
+                    .FirstOrDefault();
+
+                // ペアが無い場合は従来どおり最初に見つかった enc を使用する（passphrase 不明なら後段で警告）
+                if (targetPath == null)
+                {
+                    targetPath = candidateDirs
+                        .Select(d => Path.Combine(d, "data", EncryptedStudentsFileName))
+                        .FirstOrDefault(File.Exists);
+                }
+
+                if (targetPath != null)
+                {
+                    string passphraseFile = Path.Combine(Path.GetDirectoryName(targetPath)!, "students.passphrase");
+                    if (File.Exists(passphraseFile))
+                    {
+                        passphrase = File.ReadAllText(passphraseFile).Trim();
+                    }
+                }
+            }
+
             if (targetPath == null)
             {
                 _logger.LogWarning("students.enc not found in search paths. Master student list will be empty.");
@@ -112,22 +150,6 @@ namespace TenkoServer.Services
 
             try
             {
-                string passphrase = _options.StudentsPassphrase;
-                if (string.IsNullOrWhiteSpace(passphrase))
-                {
-                    var passphraseCandidates = new[]
-                    {
-                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "students.passphrase"),
-                        Path.Combine(_env.ContentRootPath, "data", "students.passphrase"),
-                        Path.Combine(_env.ContentRootPath, "..", "..", "data", "students.passphrase")
-                    };
-                    string? pFile = passphraseCandidates.FirstOrDefault(File.Exists);
-                    if (pFile != null)
-                    {
-                        passphrase = File.ReadAllText(pFile).Trim();
-                    }
-                }
-
                 if (string.IsNullOrWhiteSpace(passphrase))
                 {
                     _logger.LogWarning("Students passphrase is empty. Cannot decrypt students.enc. Please provide data/students.passphrase or set TenkoServer__StudentsPassphrase environment variable.");

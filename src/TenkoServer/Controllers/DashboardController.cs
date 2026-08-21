@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TenkoServer.Data;
+using TenkoServer.Data.Models;
 using TenkoServer.Models.DTOs;
 using TenkoServer.Services;
 
@@ -134,6 +135,9 @@ namespace TenkoServer.Controllers
         [HttpGet("unverified")]
         public async Task<ActionResult<List<UnverifiedStudentDto>>> GetUnverified([FromQuery] string? date)
         {
+            // 未点呼は「現在のセッション」単位で判定する。
+            // Scans テーブルにはアクティブセッションのデータのみが存在するため、
+            // セッション締め後は同じ学生が再度未点呼リストに現れる（仕様）。
             string targetDate = string.IsNullOrWhiteSpace(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date;
             var scannedNumbers = await _db.Scans
                 .Where(s => s.ScanDate == targetDate)
@@ -145,18 +149,94 @@ namespace TenkoServer.Controllers
             return Ok(unverified);
         }
 
-        [HttpGet("export/csv")]
-        public async Task<IActionResult> ExportCsv([FromQuery] string? date, [FromQuery] string? location)
+        /// <summary>
+        /// 現在のセッションを締めて、全アクティブデータを ArchivedScans へ退避する。
+        /// 退避後、Scans は空になるため重複チェックがリセットされ、
+        /// 同じ学生でも次のセッションで再度点呼できるようになる (BUG-02 対策)。
+        /// </summary>
+        [HttpPost("sessions/close")]
+        public async Task<ActionResult<CloseSessionResponseDto>> CloseSession([FromBody] CloseSessionRequestDto? request)
         {
-            string targetDate = string.IsNullOrWhiteSpace(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date;
-            var query = _db.Scans.Where(s => s.ScanDate == targetDate);
+            var actives = await _db.Scans.OrderBy(s => s.Timestamp).ToListAsync();
 
-            if (!string.IsNullOrWhiteSpace(location))
+            if (actives.Count == 0)
             {
-                query = query.Where(s => s.Location == location);
+                return Ok(new CloseSessionResponseDto
+                {
+                    Success = true,
+                    MovedCount = 0,
+                    Message = "締め対象の点呼データがありません。"
+                });
             }
 
-            var records = await query.OrderBy(s => s.Timestamp).ToListAsync();
+            string sessionId = Guid.NewGuid().ToString("N");
+            DateTime closedAt = DateTime.UtcNow;
+            string? label = string.IsNullOrWhiteSpace(request?.Label) ? null : request!.Label!.Trim();
+
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                _db.ArchivedScans.AddRange(actives.Select(s => new ArchivedScanEntity
+                {
+                    Id = s.Id,
+                    Timestamp = s.Timestamp,
+                    Barcode = s.Barcode,
+                    Last5 = s.Last5,
+                    StudentName = s.StudentName,
+                    StudentCode = s.StudentCode,
+                    Location = s.Location,
+                    ClientId = s.ClientId,
+                    ReceivedAt = s.ReceivedAt,
+                    ScanDate = s.ScanDate,
+                    SessionId = sessionId,
+                    SessionLabel = label,
+                    ClosedAt = closedAt
+                }));
+                _db.Scans.RemoveRange(actives);
+                await _db.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+
+            return Ok(new CloseSessionResponseDto
+            {
+                Success = true,
+                SessionId = sessionId,
+                MovedCount = actives.Count,
+                Message = $"{actives.Count} 件の点呼データを「{label ?? "名称未設定"}」セッションとしてアーカイブしました。"
+            });
+        }
+
+        /// <summary>
+        /// 締め済みセッションの一覧を返す。
+        /// </summary>
+        [HttpGet("sessions")]
+        public async Task<ActionResult<List<SessionSummaryDto>>> GetSessions()
+        {
+            var sessions = await _db.ArchivedScans
+                .GroupBy(a => new { a.SessionId, a.SessionLabel, a.ClosedAt })
+                .Select(g => new SessionSummaryDto
+                {
+                    SessionId = g.Key.SessionId,
+                    Label = g.Key.SessionLabel,
+                    ClosedAt = g.Key.ClosedAt,
+                    ScanCount = g.Count()
+                })
+                .OrderByDescending(s => s.ClosedAt)
+                .ToListAsync();
+
+            return Ok(sessions);
+        }
+
+        [HttpGet("export/csv")]
+        public async Task<IActionResult> ExportCsv([FromQuery] string? date, [FromQuery] string? location, [FromQuery] string? session = null)
+        {
+            var records = await CollectExportRecordsAsync(date, location, session);
+            string targetDate = ResolveTargetDate(date);
 
             var sb = new StringBuilder();
             sb.AppendLine("Timestamp,StudentNumber,StudentName,StudentCode,Location,Barcode,ClientId");
@@ -165,26 +245,81 @@ namespace TenkoServer.Controllers
                 sb.AppendLine($"{r.Timestamp:yyyy-MM-dd HH:mm:ss},{r.Last5:D5},\"{r.StudentName}\",\"{r.StudentCode}\",\"{r.Location}\",\"{r.Barcode}\",\"{r.ClientId}\"");
             }
 
-            string filename = $"tenko_export_{targetDate}_{(string.IsNullOrWhiteSpace(location) ? "all" : location)}.csv";
+            string filename = BuildExportFilename("tenko_export", targetDate, location, session, ".csv");
             return File(Encoding.UTF8.GetBytes(sb.ToString()), "text/csv; charset=utf-8", filename);
         }
 
         [HttpGet("export/bin")]
-        public async Task<IActionResult> ExportBin([FromQuery] string? date, [FromQuery] string? location)
+        public async Task<IActionResult> ExportBin([FromQuery] string? date, [FromQuery] string? location, [FromQuery] string? session = null)
         {
-            string targetDate = string.IsNullOrWhiteSpace(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date;
-            var query = _db.Scans.Where(s => s.ScanDate == targetDate);
+            var records = await CollectExportRecordsAsync(date, location, session);
+            string targetDate = ResolveTargetDate(date);
+
+            var bytes = records.SelectMany(r => BitConverter.GetBytes(r.Last5)).ToArray();
+            string filename = BuildExportFilename("ids", targetDate, location, session, ".bin");
+            return File(bytes, "application/octet-stream", filename);
+        }
+
+        /// <summary>
+        /// エクスポート対象レコードを取得する。
+        /// - session 指定時: 該当アーカイブセッションのみ
+        /// - 未指定時: 対象日のアクティブ + アーカイブを合算（締め済み過日データも DL 可能にする）
+        /// </summary>
+        private async Task<List<ScanEntity>> CollectExportRecordsAsync(string? date, string? location, string? session)
+        {
+            if (!string.IsNullOrWhiteSpace(session))
+            {
+                var archivedOnly = await _db.ArchivedScans
+                    .Where(a => a.SessionId == session)
+                    .OrderBy(a => a.Timestamp)
+                    .ToListAsync();
+                return archivedOnly.Select(ToScanShape).ToList();
+            }
+
+            string targetDate = ResolveTargetDate(date);
+
+            IQueryable<ScanEntity> activeQuery = _db.Scans.Where(s => s.ScanDate == targetDate);
+            IQueryable<ArchivedScanEntity> archivedQuery = _db.ArchivedScans.Where(a => a.ScanDate == targetDate);
 
             if (!string.IsNullOrWhiteSpace(location))
             {
-                query = query.Where(s => s.Location == location);
+                activeQuery = activeQuery.Where(s => s.Location == location);
+                archivedQuery = archivedQuery.Where(a => a.Location == location);
             }
 
-            var records = await query.OrderBy(s => s.Timestamp).ToListAsync();
-            var bytes = records.SelectMany(r => BitConverter.GetBytes(r.Last5)).ToArray();
+            var activeList = await activeQuery.OrderBy(s => s.Timestamp).ToListAsync();
+            var archivedList = await archivedQuery.OrderBy(a => a.Timestamp).ToListAsync();
 
-            string filename = $"ids_{targetDate}_{(string.IsNullOrWhiteSpace(location) ? "all" : location)}.bin";
-            return File(bytes, "application/octet-stream", filename);
+            return activeList.Concat(archivedList.Select(ToScanShape))
+                .OrderBy(s => s.Timestamp)
+                .ToList();
+        }
+
+        private static ScanEntity ToScanShape(ArchivedScanEntity a) => new()
+        {
+            Id = a.Id,
+            Timestamp = a.Timestamp,
+            Barcode = a.Barcode,
+            Last5 = a.Last5,
+            StudentName = a.StudentName,
+            StudentCode = a.StudentCode,
+            Location = a.Location,
+            ClientId = a.ClientId,
+            ReceivedAt = a.ReceivedAt,
+            ScanDate = a.ScanDate
+        };
+
+        private static string ResolveTargetDate(string? date)
+            => string.IsNullOrWhiteSpace(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date;
+
+        private static string BuildExportFilename(string prefix, string targetDate, string? location, string? session, string extension)
+        {
+            if (!string.IsNullOrWhiteSpace(session))
+            {
+                string shortId = session.Length > 8 ? session.Substring(0, 8) : session;
+                return $"{prefix}_session_{shortId}{extension}";
+            }
+            return $"{prefix}_{targetDate}_{(string.IsNullOrWhiteSpace(location) ? "all" : location)}{extension}";
         }
 
         [HttpGet("logs")]

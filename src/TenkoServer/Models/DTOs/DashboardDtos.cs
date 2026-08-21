@@ -52,8 +52,38 @@ namespace TenkoServer.Models.DTOs
 
     public class SendNotificationsResponseDto
     {
-        public bool Success { get; set; } = true;
+        public bool Success { get; set; }
         public int QueuedCount { get; set; }
         public string Message { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// セッション締めリクエスト
+    /// </summary>
+    public class CloseSessionRequestDto
+    {
+        public string? Label { get; set; }
+    }
+
+    /// <summary>
+    /// セッション締めレスポンス
+    /// </summary>
+    public class CloseSessionResponseDto
+    {
+        public bool Success { get; set; } = true;
+        public string? SessionId { get; set; }
+        public int MovedCount { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// 締め済みセッションの概要
+    /// </summary>
+    public class SessionSummaryDto
+    {
+        public string SessionId { get; set; } = string.Empty;
+        public string? Label { get; set; }
+        public DateTime ClosedAt { get; set; }
+        public int ScanCount { get; set; }
     }
 }

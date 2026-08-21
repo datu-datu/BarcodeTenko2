@@ -10,6 +10,7 @@ namespace TenkoServer.Data
         }
 
         public DbSet<ScanEntity> Scans => Set<ScanEntity>();
+        public DbSet<ArchivedScanEntity> ArchivedScans => Set<ArchivedScanEntity>();
         public DbSet<NotificationLog> NotificationLogs => Set<NotificationLog>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -22,6 +23,13 @@ namespace TenkoServer.Data
                 entity.HasIndex(e => new { e.ScanDate, e.Last5 });
                 entity.HasIndex(e => e.Timestamp);
                 entity.HasIndex(e => e.Location);
+            });
+
+            modelBuilder.Entity<ArchivedScanEntity>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.HasIndex(e => e.SessionId);
+                entity.HasIndex(e => e.ScanDate);
             });
 
             modelBuilder.Entity<NotificationLog>(entity =>
