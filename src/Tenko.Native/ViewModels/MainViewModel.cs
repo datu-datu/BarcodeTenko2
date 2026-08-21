@@ -18,6 +18,7 @@ namespace Tenko.Native.ViewModels
         private readonly ScanFileService _scanFileService;
         private readonly NotificationService _notificationService;
         private readonly StudentService _studentService;
+        private readonly ServerSyncService? _serverSyncService;
 
         // 確認ダイアログのデリゲート（テスト時に差し替え可能）
         public Func<string, string, MessageBoxImage, bool> ConfirmDialog { get; set; } =
@@ -31,6 +32,7 @@ namespace Tenko.Native.ViewModels
         private string _notificationMessage = string.Empty;
         private NotificationType _notificationType = NotificationType.Success;
         private bool _isNotificationVisible = false;
+        private string _syncStatusText = string.Empty;
         private List<ScanRecord> _allHistory = new();
 
         public ObservableCollection<ScanRecord> History { get; } = new();
@@ -41,7 +43,8 @@ namespace Tenko.Native.ViewModels
             HistoryService historyService,
             ScanFileService scanFileService,
             NotificationService notificationService,
-            StudentService studentService)
+            StudentService studentService,
+            ServerSyncService? serverSyncService = null)
         {
             // 依存サービスを受け取り、初期データとコマンドを準備する。
             _settingsService = settingsService;
@@ -49,6 +52,19 @@ namespace Tenko.Native.ViewModels
             _scanFileService = scanFileService;
             _notificationService = notificationService;
             _studentService = studentService;
+            _serverSyncService = serverSyncService;
+
+            if (_serverSyncService != null)
+            {
+                _syncStatusText = _serverSyncService.StatusMessage;
+                _serverSyncService.OnStatusChanged += (status, msg) =>
+                {
+                    Application.Current?.Dispatcher?.Invoke(() =>
+                    {
+                        SyncStatusText = msg;
+                    });
+                };
+            }
 
             foreach (var loc in _settingsService.Locations)
             {
@@ -120,6 +136,12 @@ namespace Tenko.Native.ViewModels
         {
             get => _showCompleteModal;
             set => SetProperty(ref _showCompleteModal, value);
+        }
+
+        public string SyncStatusText
+        {
+            get => _syncStatusText;
+            set => SetProperty(ref _syncStatusText, value);
         }
 
         public string NotificationMessage
@@ -291,6 +313,7 @@ namespace Tenko.Native.ViewModels
 
                 _historyService.SaveHistory(_allHistory);
                 _scanFileService.AppendLast5(CurrentLocation, last5);
+                _serverSyncService?.EnqueueRecord(record);
             }, errorPrefix: "スキャン処理失敗");
         }
 

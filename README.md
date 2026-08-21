@@ -14,6 +14,7 @@
 6. [アプリケーションの基本操作](#-アプリケーションの基本操作)
 7. [データ構造とファイル仕様](#-データ構造とファイル仕様)
 8. [サブツール（ScanViewer）](#-サブツールscanviewer)
+9. [サーバー管理システム（TenkoServer）](#-サーバー管理システムtenkoserver)
 
 ---
 
@@ -43,6 +44,7 @@ BarcodeTenko2/
   │   ├── students.csv         # [元データ] 学生マスタの平文CSV
   │   ├── students.passphrase  # [ビルド時埋め込み] 暗号化・復号用パスフレーズ
   │   ├── locations.json       # [ビルド時埋め込み] 点呼場所の初期リスト
+  │   ├── server.json          # [ビルド時埋め込み] サーバー同期設定（URL・APIキー）
   │   └── students.enc         # [実行時読み込み] 暗号化された学生マスタ（スクリプトで生成）
 ```
 
@@ -77,8 +79,21 @@ MySecurePassphrase2026!
 ]
 ```
 
-#### 4. 学生データの暗号化スクリプトを実行（`students.enc` の生成）
-上記 1〜3 のファイルを準備したら、PowerShell を開いてプロジェクトルートで暗号化スクリプトを実行します。
+#### 4. `data/server.json`（サーバー同期設定 ※任意）
+TenkoServer と連携してリアルタイム点呼集約・自動メール送信を行う場合、サーバーの接続情報を記述します。
+※ この設定もビルド時にバイナリ内部へ自動的に埋め込まれます。設定しない場合はサーバー同期なし（完全ローカル）で動作します。
+
+```json
+{
+  "serverUrl": "https://tenko.example.com",
+  "apiKey": "secret-tenko-api-key-change-me",
+  "clientId": "terminal-main",
+  "enabled": true
+}
+```
+
+#### 5. 学生データの暗号化スクリプトを実行（`students.enc` の生成）
+上記 1〜4 のファイルを準備したら、PowerShell を開いてプロジェクトルートで暗号化スクリプトを実行します。
 
 ```powershell
 .\tools\Encrypt-StudentsCsv.ps1
@@ -125,13 +140,14 @@ dotnet publish src/Tenko.Native -c Release
 
 | ファイル / フォルダ | 配布が必要か | 説明 |
 |---|:---:|---|
-| `Tenko.Native.exe` | **必須** | 単一実行ファイル（パスフレーズ・場所埋め込み済み） |
+| `Tenko.Native.exe` | **必須** | 単一実行ファイル（パスフレーズ・場所・サーバー設定埋め込み済み） |
 | `data/students.enc` | **必須** | 暗号化済み学生データ（自動コピーされます） |
 | `data/students.passphrase` | **配布禁止 ❌** | ビルド時に埋め込まれているため不要・漏洩防止 |
 | `data/students.csv` | **配布禁止 ❌** | 平文の個人情報のため配布しない |
+| `data/server.json` | **配布禁止 ❌** | ビルド時に埋め込まれているため不要・APIキー保護 |
 
 > [!CAUTION]
-> 個人情報保護のため、**`students.csv` および `students.passphrase` は絶対に配布端末に含めないでください。**
+> 個人情報およびAPIキー保護のため、**`students.csv`、`students.passphrase`、`server.json` は絶対に配布端末に含めないでください。**
 
 ---
 
@@ -172,3 +188,42 @@ dotnet run --project src/ScanViewer
 ```
 
 - **「スキャンデータファイルを選択」** から `.bin` ファイルを選択すると、含まれる学生番号と氏名・出席番号が一覧表示されます。
+
+---
+
+## 🌐 サーバー管理システム（TenkoServer）
+
+リモートの Linux サーバー（またはローカル）で稼働し、複数拠点からの点呼データを一元集約・管理できる Web API & 管理ダッシュボードです。
+
+### ✨ 主な機能
+1. **複数拠点の一元集約**: 端末から `POST /api/v1/scans`（ヘッダー: `X-API-Key`）で点呼データをリアルタイム受信・保存。
+2. **Power Automate 連携による無料メール送信**: 点呼記録時に `s{last5}@tokyo.kosen-ac.jp` 宛てに完了通知メールを自動送信。
+3. **Web 管理ビュー（ダッシュボード）**:
+   - ブラウザから安全にログイン（パスワード認証 & レートリミット保護）。
+   - リアルタイム点呼状況・完了率・拠点別集計の可視化。
+   - **未点呼者リスト**: 学生マスタと当日の点呼データを突合し、未完了学生を瞬時に一覧表示。
+   - 全拠点集約データの CSV / BIN ダウンロード。
+
+### 🚀 起動方法
+
+#### ローカル / 直接実行
+```powershell
+dotnet run --project src/TenkoServer
+```
+- 管理画面: `http://localhost:5000` (初期パスワード: `admin`)
+- ログイン後、リアルタイムダッシュボードが表示されます。
+
+#### Linux / Docker での本番デプロイ (HTTPS 自動対応)
+```bash
+cd src/TenkoServer
+# 必要に応じて docker-compose.yml や appsettings.json の環境変数を設定
+docker compose up -d --build
+```
+- Caddy リバースプロキシが自動的に Let's Encrypt 等で HTTPS 証明書を取得し、Port 443 で安全にアクセス可能になります。
+
+### ⚙️ Power Automate の設定手順（メール自動送信）
+1. Power Automate で新しいフローを作成し、トリガーに **「HTTP 要求の受信時」** を選択します。
+2. 生成された **HTTP POST の URL** をコピーします。
+3. `src/TenkoServer/appsettings.json` の `PowerAutomateWebhookUrl` に貼り付けます（または環境変数 `TenkoServer__PowerAutomateWebhookUrl` に設定）。
+4. Power Automate 側で **「メールの送信 (V2)」(Office 365 Outlook)** アクションを追加し、宛先を `triggerBody()?['to']` に設定します。
+

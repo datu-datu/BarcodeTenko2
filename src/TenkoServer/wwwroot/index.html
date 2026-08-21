@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TenkoServer - 点呼一元管理ダッシュボード</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Top Navbar -->
+        <header class="navbar">
+            <div class="nav-brand">
+                <span class="brand-icon">📋</span>
+                <div>
+                    <h1 class="brand-title">TenkoServer 管理ビュー</h1>
+                    <p class="brand-sub">全拠点リアルタイム点呼管理 & 通知システム</p>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="autoRefreshCheck" checked>
+                    自動更新 (5秒)
+                </label>
+                <span id="lastUpdatedText" style="font-size: 12px; color: var(--text-muted);">更新中...</span>
+                <button id="logoutBtn" class="btn btn-outline" style="padding: 4px 10px; font-size: 12px;">ログアウト</button>
+            </div>
+        </header>
+
+        <!-- Date & Location Filter Bar -->
+        <section class="filter-bar">
+            <div class="filter-group">
+                <label for="dateSelect" style="font-size: 13px; font-weight: 600;">対象日付:</label>
+                <input type="date" id="dateSelect" class="input-control">
+                <button id="todayBtn" class="btn btn-outline">今日</button>
+            </div>
+            <div class="filter-group">
+                <input type="text" id="searchInput" class="input-control" placeholder="氏名・番号・場所で検索..." style="min-width: 260px;">
+                <button id="refreshBtn" class="btn btn-primary">🔄 再読み込み</button>
+            </div>
+        </section>
+
+        <!-- Stats Overview Cards -->
+        <section class="stats-grid">
+            <div class="stat-card info">
+                <div class="stat-title">本日の点呼完了人数</div>
+                <div class="stat-value"><span id="uniqueStudentsCount">0</span> <span class="stat-unit">人</span></div>
+                <div class="stat-desc">総スキャン件数: <span id="totalScansCount">0</span> 件</div>
+            </div>
+
+            <div class="stat-card warning">
+                <div class="stat-title">未点呼人数</div>
+                <div class="stat-value"><span id="unverifiedStudentsCount">0</span> <span class="stat-unit">人</span></div>
+                <div class="stat-desc">登録総学生数: <span id="totalMasterStudentsCount">0</span> 人</div>
+            </div>
+
+            <div class="stat-card success">
+                <div class="stat-title">点呼完了率</div>
+                <div class="stat-value"><span id="completionRateText">0.0</span> <span class="stat-unit">%</span></div>
+                <div class="progress-container">
+                    <div id="completionProgressBar" class="progress-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-title">拠点別スキャン状況</div>
+                <div id="locationChips" class="location-chips">
+                    <span class="chip">データ読み込み中...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <nav class="tabs-nav">
+            <button class="tab-btn active" data-tab="scansTab">スキャン履歴一覧</button>
+            <button class="tab-btn" data-tab="unverifiedTab">未点呼者リスト (<span id="unverifiedTabBadge">0</span>)</button>
+            <button class="tab-btn" data-tab="logsTab">通知送信ログ</button>
+            <button class="tab-btn" data-tab="exportTab">データエクスポート</button>
+        </nav>
+
+        <!-- Tab 1: Scans History -->
+        <section id="scansTab" class="tab-content content-card">
+            <div class="card-header-flex">
+                <h2 style="font-size: 16px;">スキャン履歴 (<span id="scansCountBadge">0</span>件)</h2>
+                <div style="font-size: 12px; color: var(--text-muted);">※ 最新の点呼が上に表示されます</div>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>時刻</th>
+                            <th>学籍番号</th>
+                            <th>出席番号</th>
+                            <th>氏名</th>
+                            <th>スキャン場所</th>
+                            <th>バーコード</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scansTableBody">
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Tab 2: Unverified Students -->
+        <section id="unverifiedTab" class="tab-content content-card" style="display: none;">
+            <div class="card-header-flex">
+                <div>
+                    <h2 style="font-size: 16px;">未点呼の学生一覧</h2>
+                    <p style="font-size: 12px; color: var(--text-muted);">学生マスタに登録されており、本日まだ点呼が記録されていない学生です</p>
+                </div>
+                <button id="copyUnverifiedEmailsBtn" class="btn btn-outline" style="font-size: 12px;">📋 未点呼者メール一覧をコピー</button>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>学籍番号</th>
+                            <th>出席番号</th>
+                            <th>氏名</th>
+                            <th>通知先メールアドレス</th>
+                            <th>ステータス</th>
+                        </tr>
+                    </thead>
+                    <tbody id="unverifiedTableBody">
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Tab 3: Notification Logs -->
+        <section id="logsTab" class="tab-content content-card" style="display: none;">
+            <div class="card-header-flex">
+                <h2 style="font-size: 16px;">Power Automate 通知送信ログ</h2>
+                <button id="refreshLogsBtn" class="btn btn-outline" style="font-size: 12px;">ログ更新</button>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>送信日時 (UTC)</th>
+                            <th>学籍番号</th>
+                            <th>宛先アドレス</th>
+                            <th>結果</th>
+                            <th>HTTPステータス</th>
+                            <th>エラー / 備考</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logsTableBody">
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Tab 4: Export -->
+        <section id="exportTab" class="tab-content content-card" style="display: none;">
+            <h2 style="font-size: 16px; margin-bottom: 12px;">全拠点集約データ エクスポート</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+                選択中の日付（<span id="exportTargetDateText">今日</span>）の全拠点点呼データをダウンロードできます。
+            </p>
+            <div style="display: flex; gap: 16px;">
+                <button id="downloadCsvBtn" class="btn btn-primary" style="padding: 12px 24px; font-size: 14px;">
+                    📥 CSV形式でダウンロード
+                </button>
+                <button id="downloadBinBtn" class="btn btn-outline" style="padding: 12px 24px; font-size: 14px;">
+                    💾 BIN形式（UInt16）でダウンロード
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

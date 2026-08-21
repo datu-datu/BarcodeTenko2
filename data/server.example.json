@@ -1,0 +1,6 @@
+{
+  "serverUrl": "http://localhost:5000",
+  "apiKey": "secret-tenko-api-key-change-me",
+  "clientId": "terminal-main",
+  "enabled": true
+}

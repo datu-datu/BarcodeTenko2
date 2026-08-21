@@ -30,13 +30,15 @@ namespace Tenko.Native
             var scanFileService = new ScanFileService(storage);
             var notificationService = new NotificationService();
             var studentService = new StudentService(storage);
+            var serverSyncService = new ServerSyncService();
 
             _viewModel = new MainViewModel(
                 settingsService,
                 historyService,
                 scanFileService,
                 notificationService,
-                studentService
+                studentService,
+                serverSyncService
             );
 
             this.DataContext = _viewModel;

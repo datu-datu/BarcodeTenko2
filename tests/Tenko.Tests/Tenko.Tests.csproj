@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Tenko.Native\Tenko.Native.csproj" />
+    <ProjectReference Include="..\..\src\TenkoServer\TenkoServer.csproj" />
   </ItemGroup>
 
   <ItemGroup>

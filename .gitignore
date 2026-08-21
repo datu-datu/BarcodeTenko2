@@ -9,6 +9,7 @@ obj/
 ## [Data]
 data/history.json
 data/settings.json
+data/server.json
 *.passphrase
 scans/
 tools/data/

@@ -189,11 +189,14 @@
 
         <!-- Status Bar Notification -->
         <StatusBar Grid.Row="2" Background="{StaticResource BackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
-            <StatusBarItem>
-                <StackPanel Orientation="Horizontal">
+            <DockPanel LastChildFill="True">
+                <StatusBarItem DockPanel.Dock="Right" Margin="0,0,10,0">
+                    <TextBlock Text="{Binding SyncStatusText}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                </StatusBarItem>
+                <StatusBarItem>
                     <TextBlock Text="{Binding NotificationMessage}" VerticalAlignment="Center"/>
-                </StackPanel>
-            </StatusBarItem>
+                </StatusBarItem>
+            </DockPanel>
         </StatusBar>
 
         <!-- Modals (Classical approach: simple centered borders) -->

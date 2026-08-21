@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TenkoServer</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.8">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\data\students.enc" Condition="Exists('..\..\data\students.enc')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Link>data\students.enc</Link>
+    </None>
+    <Compile Include="$(IntermediateOutputPath)Generated\EmbeddedStudentsPassphrase.g.cs"
+             AutoGen="true"
+             DesignTime="true"
+             Visible="false" />
+  </ItemGroup>
+
+  <Target Name="GenerateEmbeddedStudentsPassphrase" BeforeTargets="BeforeCompile">
+    <PropertyGroup>
+      <StudentsPassphrasePath>$(MSBuildProjectDirectory)\..\..\data\students.passphrase</StudentsPassphrasePath>
+      <EmbeddedPassphraseSourcePath>$(IntermediateOutputPath)Generated\EmbeddedStudentsPassphrase.g.cs</EmbeddedPassphraseSourcePath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(StudentsPassphrasePath)')"
+           Text="students.passphrase not found. Create data\students.passphrase before build." />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Generate-EmbeddedPassphrase.ps1&quot; -InputPath &quot;$(StudentsPassphrasePath)&quot; -OutputPath &quot;$(EmbeddedPassphraseSourcePath)&quot;"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="High"
+          StandardErrorImportance="High" />
+    <Warning Text="[GenerateEmbeddedStudentsPassphrase] students.passphrase loaded and embedded from $(StudentsPassphrasePath)." />
+  </Target>
+
+</Project>

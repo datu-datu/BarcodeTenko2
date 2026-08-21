@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン - TenkoServer 点呼管理ビュー</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="login-body">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="logo-badge">📋</div>
+            <h2>TenkoServer</h2>
+            <p class="subtitle">点呼一元管理ダッシュボード</p>
+        </div>
+        <form id="loginForm" class="login-form">
+            <div class="form-group">
+                <label for="password">管理者パスワード</label>
+                <input type="password" id="password" name="password" placeholder="パスワードを入力" required autofocus>
+            </div>
+            <div id="errorMessage" class="error-banner" style="display: none;"></div>
+            <button type="submit" id="loginBtn" class="btn btn-primary btn-block">ログイン</button>
+        </form>
+        <div class="login-footer">
+            <p>© 2026 BarcodeTenko2 System</p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+            const errorBanner = document.getElementById('errorMessage');
+            const btn = document.getElementById('loginBtn');
+
+            errorBanner.style.display = 'none';
+            btn.disabled = true;
+            btn.innerText = '認証中...';
+
+            try {
+                const res = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    window.location.href = '/index.html';
+                } else {
+                    errorBanner.innerText = data.message || 'パスワードが正しくありません。';
+                    errorBanner.style.display = 'block';
+                }
+            } catch (err) {
+                errorBanner.innerText = 'サーバーとの通信に失敗しました。';
+                errorBanner.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'ログイン';
+            }
+        });
+    </script>
+</body>
+</html>
