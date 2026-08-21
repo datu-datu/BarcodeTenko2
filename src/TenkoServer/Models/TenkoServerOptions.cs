@@ -15,6 +15,11 @@ namespace TenkoServer.Models
         public string AdminPassword { get; set; } = "admin1234";
 
         /// <summary>
+        /// 学生マスタ（students.enc）の復号用パスフレーズ（環境変数 TenkoServer__StudentsPassphrase または data/students.passphrase で指定）
+        /// </summary>
+        public string StudentsPassphrase { get; set; } = string.Empty;
+
+        /// <summary>
         /// 学生メールアドレスのドメイン (例: tokyo.kosen-ac.jp -> s21021@tokyo.kosen-ac.jp)
         /// </summary>
         public string EmailDomain { get; set; } = "tokyo.kosen-ac.jp";

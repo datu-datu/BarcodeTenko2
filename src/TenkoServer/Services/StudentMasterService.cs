@@ -6,7 +6,6 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
-using Tenko.Native.Generated;
 using TenkoServer.Models;
 using TenkoServer.Models.DTOs;
 
@@ -113,10 +112,25 @@ namespace TenkoServer.Services
 
             try
             {
-                string passphrase = EmbeddedStudentsPassphrase.GetPassphrase();
+                string passphrase = _options.StudentsPassphrase;
                 if (string.IsNullOrWhiteSpace(passphrase))
                 {
-                    _logger.LogWarning("Embedded passphrase is empty. Cannot decrypt students.enc.");
+                    var passphraseCandidates = new[]
+                    {
+                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "students.passphrase"),
+                        Path.Combine(_env.ContentRootPath, "data", "students.passphrase"),
+                        Path.Combine(_env.ContentRootPath, "..", "..", "data", "students.passphrase")
+                    };
+                    string? pFile = passphraseCandidates.FirstOrDefault(File.Exists);
+                    if (pFile != null)
+                    {
+                        passphrase = File.ReadAllText(pFile).Trim();
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(passphrase))
+                {
+                    _logger.LogWarning("Students passphrase is empty. Cannot decrypt students.enc. Please provide data/students.passphrase or set TenkoServer__StudentsPassphrase environment variable.");
                     return;
                 }
 

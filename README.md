@@ -226,4 +226,5 @@ docker compose up -d --build
 2. 生成された **HTTP POST の URL** をコピーします。
 3. `src/TenkoServer/appsettings.json` の `PowerAutomateWebhookUrl` に貼り付けます（または環境変数 `TenkoServer__PowerAutomateWebhookUrl` に設定）。
 4. Power Automate 側で **「メールの送信 (V2)」(Office 365 Outlook)** アクションを追加し、宛先を `triggerBody()?['to']` に設定します。
-
+### 📖 詳細ガイド
+より詳しいデプロイ手順や Dockerfile の仕様解説については、[TenkoServer 実行・デプロイガイド](docs/tenkoserver-guide.md) を参照してください。

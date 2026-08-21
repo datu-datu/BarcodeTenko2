@@ -9,10 +9,6 @@ COPY ["src/Tenko.Native/Tenko.Native.csproj", "src/Tenko.Native/"]
 COPY ["src/ScanViewer/ScanViewer.csproj", "src/ScanViewer/"]
 COPY ["tests/Tenko.Tests/Tenko.Tests.csproj", "tests/Tenko.Tests/"]
 
-# Copy tools and data for build-time code generation
-COPY ["tools/", "tools/"]
-COPY ["data/", "data/"]
-
 # Restore dependencies
 RUN dotnet restore "src/TenkoServer/TenkoServer.csproj"
 
