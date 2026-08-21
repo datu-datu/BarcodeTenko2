@@ -122,7 +122,6 @@
                     <h2 style="font-size: 16px;">未点呼の学生一覧</h2>
                     <p style="font-size: 12px; color: var(--text-muted);">現在のセッションでまだ点呼が記録されていない学生です（セッション締め後はリセットされます）</p>
                 </div>
-                <button id="copyUnverifiedEmailsBtn" class="btn btn-outline" style="font-size: 12px;">未点呼者メール一覧をコピー</button>
             </div>
             <div class="table-responsive">
                 <table class="data-table">
@@ -131,12 +130,11 @@
                             <th>学籍番号</th>
                             <th>出席番号</th>
                             <th>氏名</th>
-                            <th>通知先メールアドレス</th>
                             <th>ステータス</th>
                         </tr>
                     </thead>
                     <tbody id="unverifiedTableBody">
-                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -186,14 +184,13 @@
                         <tr>
                             <th>送信日時 (UTC)</th>
                             <th>学籍番号</th>
-                            <th>宛先アドレス</th>
                             <th>結果</th>
                             <th>HTTPステータス</th>
                             <th>エラー / 備考</th>
                         </tr>
                     </thead>
                     <tbody id="logsTableBody">
-                        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
                     </tbody>
                 </table>
             </div>

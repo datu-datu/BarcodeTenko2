@@ -73,8 +73,8 @@ namespace TenkoServer.Controllers
                     continue;
                 }
 
-                // サーバー側学生マスタから氏名・出席番号・メールアドレスを解決
-                var (masterName, masterCode, studentEmail) = _studentMaster.GetStudentInfo(record.Last5);
+                // サーバー側学生マスタから氏名・出席番号を解決
+                var (masterName, masterCode) = _studentMaster.GetStudentInfo(record.Last5);
                 string studentName = !string.IsNullOrWhiteSpace(masterName) ? masterName : (!string.IsNullOrWhiteSpace(record.StudentName) ? record.StudentName : "未登録");
                 string studentCode = !string.IsNullOrWhiteSpace(masterCode) ? masterCode : (!string.IsNullOrWhiteSpace(record.StudentCode) ? record.StudentCode : string.Empty);
 
@@ -106,8 +106,7 @@ namespace TenkoServer.Controllers
                         StudentCode = studentCode,
                         Location = entity.Location,
                         ClientId = entity.ClientId,
-                        Timestamp = entity.Timestamp,
-                        ToEmail = studentEmail
+                        Timestamp = entity.Timestamp
                     });
                     notificationCount++;
                 }

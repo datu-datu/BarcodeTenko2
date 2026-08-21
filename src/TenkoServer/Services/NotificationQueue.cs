@@ -14,7 +14,6 @@ namespace TenkoServer.Services
         public string Location { get; set; } = string.Empty;
         public string ClientId { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; }
-        public string ToEmail { get; set; } = string.Empty;
 
         /// <summary>キューに投入された時刻 (UTC)。バッチ送信の待機時間計算に使用する</summary>
         public DateTime EnqueuedAtUtc { get; set; }

@@ -403,7 +403,6 @@ namespace TenkoServer.Controllers
 
             foreach (var s in toSend)
             {
-                var (_, _, studentEmail) = _studentMaster.GetStudentInfo(s.Last5);
                 await _notificationQueue.QueueNotificationAsync(new NotificationTask
                 {
                     ScanId = s.Id,
@@ -412,8 +411,7 @@ namespace TenkoServer.Controllers
                     StudentCode = s.StudentCode,
                     Location = s.Location,
                     ClientId = s.ClientId,
-                    Timestamp = s.Timestamp,
-                    ToEmail = studentEmail
+                    Timestamp = s.Timestamp
                 });
                 queuedCount++;
             }
@@ -461,7 +459,6 @@ namespace TenkoServer.Controllers
                 });
             }
 
-            var (_, _, studentEmail) = _studentMaster.GetStudentInfo(scan.Last5);
             await _notificationQueue.QueueNotificationAsync(new NotificationTask
             {
                 ScanId = scan.Id,
@@ -470,8 +467,7 @@ namespace TenkoServer.Controllers
                 StudentCode = scan.StudentCode,
                 Location = scan.Location,
                 ClientId = scan.ClientId,
-                Timestamp = scan.Timestamp,
-                ToEmail = studentEmail
+                Timestamp = scan.Timestamp
             });
 
             return Ok(new SendNotificationsResponseDto

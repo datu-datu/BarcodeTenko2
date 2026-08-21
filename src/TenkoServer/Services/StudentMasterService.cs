@@ -16,15 +16,13 @@ namespace TenkoServer.Services
         public ushort StudentNumber { get; set; }
         public string Name { get; set; } = string.Empty;
         public string Code { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
     }
 
     public interface IStudentMasterService
     {
         IReadOnlyDictionary<ushort, StudentInfo> GetAllStudents();
-        (string Name, string Code, string Email) GetStudentInfo(ushort studentNumber);
+        (string Name, string Code) GetStudentInfo(ushort studentNumber);
         List<UnverifiedStudentDto> GetUnverifiedStudents(IEnumerable<ushort> scannedStudentNumbers);
-        string FormatStudentEmail(ushort studentNumber);
     }
 
     public class StudentMasterService : IStudentMasterService
@@ -59,21 +57,15 @@ namespace TenkoServer.Services
             LoadStudents();
         }
 
-        public string FormatStudentEmail(ushort studentNumber)
-        {
-            string domain = string.IsNullOrWhiteSpace(_options.EmailDomain) ? "tokyo.kosen-ac.jp" : _options.EmailDomain;
-            return $"s{studentNumber:D5}@{domain}";
-        }
-
         public IReadOnlyDictionary<ushort, StudentInfo> GetAllStudents() => _studentMap;
 
-        public (string Name, string Code, string Email) GetStudentInfo(ushort studentNumber)
+        public (string Name, string Code) GetStudentInfo(ushort studentNumber)
         {
             if (_studentMap.TryGetValue(studentNumber, out var info))
             {
-                return (info.Name, info.Code, info.Email);
+                return (info.Name, info.Code);
             }
-            return (string.Empty, string.Empty, FormatStudentEmail(studentNumber));
+            return (string.Empty, string.Empty);
         }
 
         public List<UnverifiedStudentDto> GetUnverifiedStudents(IEnumerable<ushort> scannedStudentNumbers)
@@ -87,8 +79,7 @@ namespace TenkoServer.Services
                 {
                     StudentNumber = s.StudentNumber,
                     Name = s.Name,
-                    Code = s.Code,
-                    Email = s.Email
+                    Code = s.Code
                 })
                 .ToList();
         }
@@ -184,8 +175,7 @@ namespace TenkoServer.Services
                         {
                             StudentNumber = num,
                             Name = parts[1].Trim(),
-                            Code = parts[2].Trim(),
-                            Email = FormatStudentEmail(num)
+                            Code = parts[2].Trim()
                         };
                     }
                 }

@@ -4,7 +4,6 @@
 
 let currentTab = 'scansTab';
 let autoRefreshTimer = null;
-let cachedUnverifiedEmails = [];
 let notificationSettings = { isAutoSend: true, isWebhookConfigured: false };
 
 /**
@@ -136,16 +135,6 @@ function setupEventListeners() {
             if (targetId === 'unverifiedTab') loadUnverified();
             if (targetId === 'sessionsTab') loadSessions();
         });
-    });
-
-    // 未点呼者メールコピー
-    document.getElementById('copyUnverifiedEmailsBtn').addEventListener('click', () => {
-        if (cachedUnverifiedEmails.length === 0) {
-            alert('コピー対象のメールアドレスがありません。');
-            return;
-        }
-        navigator.clipboard.writeText(cachedUnverifiedEmails.join(', '));
-        alert(`${cachedUnverifiedEmails.length} 件のメールアドレスをクリップボードにコピーしました。`);
     });
 
     // ログ更新ボタン
@@ -467,10 +456,9 @@ async function loadUnverified() {
 
     const list = await res.json();
     const tbody = document.getElementById('unverifiedTableBody');
-    cachedUnverifiedEmails = list.map(s => s.email).filter(Boolean);
 
     if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--success); padding: 24px;">全員の点呼が完了しています</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--success); padding: 24px;">全員の点呼が完了しています</td></tr>';
         return;
     }
 
@@ -481,7 +469,6 @@ async function loadUnverified() {
                 <td class="font-mono">${escapeHtml(String(s.studentNumber).padStart(5, '0'))}</td>
                 <td><span class="badge badge-warning">${escapeHtml(s.code || '-')}</span></td>
                 <td><strong>${escapeHtml(s.name)}</strong></td>
-                <td class="font-mono" style="color: var(--text-muted);">${escapeHtml(s.email)}</td>
                 <td><span class="badge badge-danger">未点呼</span></td>
             </tr>
         `;
@@ -498,7 +485,7 @@ async function loadLogs() {
     const tbody = document.getElementById('logsTableBody');
 
     if (logs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">送信ログはありません</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">送信ログはありません</td></tr>';
         return;
     }
 
@@ -513,7 +500,6 @@ async function loadLogs() {
             <tr>
                 <td class="font-mono">${escapeHtml(timeStr)}</td>
                 <td class="font-mono">${escapeHtml(String(l.studentNumber).padStart(5, '0'))}</td>
-                <td class="font-mono">${escapeHtml(l.toEmail)}</td>
                 <td>${resultBadge}</td>
                 <td class="font-mono">${escapeHtml(l.statusCode || '-')}</td>
                 <td style="color: var(--text-muted); font-size: 12px;">${escapeHtml(l.errorMessage || 'OK')}</td>

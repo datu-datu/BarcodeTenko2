@@ -22,11 +22,6 @@ namespace TenkoServer.Models
         public string StudentsPassphrase { get; set; } = string.Empty;
 
         /// <summary>
-        /// 学生メールアドレスのドメイン (例: tokyo.kosen-ac.jp -> s21021@tokyo.kosen-ac.jp)
-        /// </summary>
-        public string EmailDomain { get; set; } = "tokyo.kosen-ac.jp";
-
-        /// <summary>
         /// Power Automate の HTTP 要求受信時 Webhook URL
         /// </summary>
         public string PowerAutomateWebhookUrl { get; set; } = string.Empty;

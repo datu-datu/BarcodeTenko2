@@ -16,9 +16,6 @@ namespace TenkoServer.Data.Models
 
         public ushort StudentNumber { get; set; }
 
-        [MaxLength(100)]
-        public string ToEmail { get; set; } = string.Empty;
-
         public DateTime SentAt { get; set; } = DateTime.UtcNow;
 
         public bool IsSuccess { get; set; }

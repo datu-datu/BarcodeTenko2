@@ -167,7 +167,6 @@ namespace TenkoServer.Services
                     {
                         ScanId = task.ScanId,
                         StudentNumber = task.StudentNumber,
-                        ToEmail = task.ToEmail,
                         SentAt = DateTime.UtcNow,
                         IsSuccess = isSuccess,
                         StatusCode = statusCode,

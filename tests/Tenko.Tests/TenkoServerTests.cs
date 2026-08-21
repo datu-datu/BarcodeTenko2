@@ -45,7 +45,6 @@ namespace Tenko.Tests
             {
                 ApiKey = "test-api-key",
                 AdminPassword = "test-admin-password",
-                EmailDomain = "tokyo.kosen-ac.jp",
                 EnableNotifications = true
             };
         }
@@ -54,20 +53,6 @@ namespace Tenko.Tests
         {
             _db.Database.EnsureDeleted();
             _db.Dispose();
-        }
-
-        [Fact]
-        public void FormatStudentEmail_GeneratesExpectedFormat()
-        {
-            var optionsWrapper = Options.Create(_options);
-            var mockEnv = new MockWebHostEnvironment();
-            var service = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
-
-            string email = service.FormatStudentEmail(21021);
-            Assert.Equal("s21021@tokyo.kosen-ac.jp", email);
-
-            string emailZeroPadded = service.FormatStudentEmail(123);
-            Assert.Equal("s00123@tokyo.kosen-ac.jp", emailZeroPadded);
         }
 
         [Fact]
@@ -126,7 +111,6 @@ namespace Tenko.Tests
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
             var task1 = await queue.DequeueNotificationAsync(cts.Token);
             Assert.Equal(21021, task1.StudentNumber);
-            Assert.Equal("s21021@tokyo.kosen-ac.jp", task1.ToEmail);
             Assert.Equal("2棟2階", task1.Location);
 
             // 同一データを再送信（重複排除テスト）
@@ -399,8 +383,7 @@ namespace Tenko.Tests
             var task = new NotificationTask
             {
                 ScanId = "task-1",
-                StudentNumber = 21021,
-                ToEmail = "s21021@tokyo.kosen-ac.jp"
+                StudentNumber = 21021
             };
 
             await queue.QueueNotificationAsync(task);
@@ -409,7 +392,7 @@ namespace Tenko.Tests
             var dequeued = await queue.DequeueNotificationAsync(cts.Token);
 
             Assert.Equal("task-1", dequeued.ScanId);
-            Assert.Equal("s21021@tokyo.kosen-ac.jp", dequeued.ToEmail);
+            Assert.Equal(21021, dequeued.StudentNumber);
         }
 
         [Fact]
@@ -454,8 +437,7 @@ namespace Tenko.Tests
                     StudentCode = $"code-{i}",
                     Location = "2棟2階",
                     ClientId = $"terminal-{i}",
-                    Timestamp = new DateTime(2026, 8, 21, 10, 0, 0).AddMinutes(i),
-                    ToEmail = $"s{20000 + i:D5}@tokyo.kosen-ac.jp"
+                    Timestamp = new DateTime(2026, 8, 21, 10, 0, 0).AddMinutes(i)
                 });
             }
 

@@ -184,8 +184,7 @@ dotnet TenkoServer.dll
 | `TENKO_API_KEY` | **(必須・既定値なし)** | 端末（クライアント）認証用 API キー（ヘッダー: `X-API-Key`）。ランダムな 256bit 相合の文字列を推奨 |
 | `TENKO_ADMIN_PASSWORD` | **(必須・既定値なし)** | Web 管理ダッシュボードのログインパスワード。推測困難な文字列を設定すること |
 | `TENKO_STUDENTS_PASSPHRASE` | *(空)* | 学生マスタ復号用パスフレーズ（`data/students.passphrase` または環境変数で設定） |
-| `TENKO_EMAIL_DOMAIN` | `tokyo.kosen-ac.jp` | 点呼完了通知メールの送信先ドメイン（`s{学籍番号}@{ドメイン}`） |
-| `TENKO_POWER_AUTOMATE_WEBHOOK_URL` | *(空)* | Power Automate の HTTP 要求受信トリガー URL |
+| `TENKO_POWER_AUTOMATE_WEBHOOK_URL` | *(空)* | Power Automate の HTTP 要求受信トリガー URL。宛先メールアドレスは Power Automate 側で学籍番号から解決する |
 
 > [!CAUTION]
 > 以前のドキュメントに記載されていた具体的なキー・パスワードの値は漏洩済みとみなし、必ず新しい値へローテーションしてください。
