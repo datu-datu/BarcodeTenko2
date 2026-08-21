@@ -31,13 +31,21 @@ namespace Tenko.Native.Services
         /// </summary>
         public const string PersistFileName = "sync_queue.json";
 
+        /// <summary>
+        /// サーバー削除待ちレコード Id の永続化先ファイル名 (data/ 配下)
+        /// </summary>
+        public const string DeletePersistFileName = "sync_deletes.json";
+
         private readonly HttpClient _httpClient;
         private readonly List<ScanRecord> _pendingRecords = new();
+        private readonly List<string> _pendingDeletions = new();
         private readonly object _lock = new();
         private readonly object _persistLock = new();
         private readonly string? _persistPath;
+        private readonly string? _deletePersistPath;
         private readonly DispatcherTimer? _retryTimer;
         private bool _isSyncing = false;
+        private bool _isFlushingDeletions = false;
 
         public event Action<SyncStatus, string>? OnStatusChanged;
 
@@ -53,12 +61,22 @@ namespace Tenko.Native.Services
             _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             _persistPath = persistFilePath;
 
+            if (!string.IsNullOrEmpty(_persistPath))
+            {
+                string? dir = Path.GetDirectoryName(_persistPath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    _deletePersistPath = Path.Combine(dir, DeletePersistFileName);
+                }
+            }
+
             if (EmbeddedServerConfig.IsEnabled && !string.IsNullOrWhiteSpace(EmbeddedServerConfig.ServerUrl))
             {
                 // 前回終了時に送信できていなかったレコードを復元する
                 LoadPendingRecords();
+                LoadPendingDeletions();
                 int restored = PendingCount;
-                if (restored > 0)
+                if (restored > 0 || PendingDeletionCount > 0)
                 {
                     UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {restored}件");
                 }
@@ -67,9 +85,9 @@ namespace Tenko.Native.Services
                     UpdateStatus(SyncStatus.Idle, "☁ 待機中");
                 }
 
-                // 定期リトライタイマー (30秒間隔)
+                // 定期リトライタイマー (30秒間隔・未送信/削除待ちが無い場合は通信なしで即リターン)
                 _retryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-                _retryTimer.Tick += async (s, e) => await SyncPendingAsync();
+                _retryTimer.Tick += async (s, e) => { await SyncPendingAsync(); await FlushDeletionsAsync(); };
                 _retryTimer.Start();
             }
             else
@@ -199,6 +217,157 @@ namespace Tenko.Native.Services
             }
         }
 
+        /// <summary>
+        /// 指定 Id のレコードがまだ未送信キューに残っていれば除外する。
+        /// サーバーへ未到達のレコードは削除要求を送る必要がないため、
+        /// 呼び出し側は false が返った場合のみ EnqueueDeletion を呼び出すこと。
+        /// 同期無効環境では常に true を返す (サーバー反映不要)。
+        /// </summary>
+        public bool RemovePendingRecord(string id)
+        {
+            if (!EmbeddedServerConfig.IsEnabled || string.IsNullOrWhiteSpace(EmbeddedServerConfig.ServerUrl))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(id)) return false;
+
+            bool removed;
+            lock (_lock)
+            {
+                removed = _pendingRecords.RemoveAll(r => r.Id == id) > 0;
+            }
+
+            if (removed)
+            {
+                SavePendingRecords();
+                int remaining = PendingCount;
+                if (remaining == 0 && PendingDeletionCount == 0)
+                {
+                    UpdateStatus(SyncStatus.Synced, "☁ 同期済");
+                }
+                else
+                {
+                    UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {remaining}件");
+                }
+            }
+
+            return removed;
+        }
+
+        /// <summary>
+        /// 既にサーバーへ送信済みの可能性があるレコード Id を削除送信待ちキューへ追加し、即時に削除要求を試みる。
+        /// オフライン時は sync_deletes.json に永続化され、オンライン復帰後に再送される。
+        /// </summary>
+        public void EnqueueDeletion(string id)
+        {
+            if (!EmbeddedServerConfig.IsEnabled || string.IsNullOrWhiteSpace(EmbeddedServerConfig.ServerUrl))
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(id)) return;
+
+            bool added = false;
+            lock (_lock)
+            {
+                if (!_pendingDeletions.Contains(id))
+                {
+                    _pendingDeletions.Add(id);
+                    added = true;
+                }
+            }
+
+            if (added)
+            {
+                SavePendingDeletions();
+            }
+
+            _ = Task.Run(FlushDeletionsAsync);
+        }
+
+        public int PendingDeletionCount
+        {
+            get { lock (_lock) return _pendingDeletions.Count; }
+        }
+
+        /// <summary>
+        /// 削除待ち Id を POST /api/v1/scans/delete へ一括送信する。
+        /// 成功した Id だけをキューから除去するため、失敗時は自動リトライ対象として保持される。
+        /// </summary>
+        public async Task FlushDeletionsAsync()
+        {
+            if (!EmbeddedServerConfig.IsEnabled || string.IsNullOrWhiteSpace(EmbeddedServerConfig.ServerUrl))
+            {
+                return;
+            }
+
+            List<string> batch;
+            lock (_lock)
+            {
+                if (_isFlushingDeletions || _pendingDeletions.Count == 0) return;
+                _isFlushingDeletions = true;
+                batch = _pendingDeletions.ToList();
+            }
+
+            try
+            {
+                string endpoint = EmbeddedServerConfig.ServerUrl.TrimEnd('/') + "/api/v1/scans/delete";
+
+                var payload = new
+                {
+                    clientId = EmbeddedServerConfig.ClientId,
+                    ids = batch
+                };
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                if (!string.IsNullOrWhiteSpace(EmbeddedServerConfig.ApiKey))
+                {
+                    request.Headers.Add("X-API-Key", EmbeddedServerConfig.ApiKey);
+                }
+                request.Content = JsonContent.Create(payload);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    bool removed = false;
+                    lock (_lock)
+                    {
+                        var sentIds = new HashSet<string>(batch);
+                        removed = _pendingDeletions.RemoveAll(i => sentIds.Contains(i)) > 0;
+                    }
+
+                    if (removed)
+                    {
+                        SavePendingDeletions();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // オフライン等の場合はキューに保持し、次回のリトライで再送する
+                Debug.WriteLine($"[ServerSyncService] Deletion flush failed: {ex.Message}");
+            }
+            finally
+            {
+                lock (_lock)
+                {
+                    _isFlushingDeletions = false;
+                }
+            }
+
+            int pendingRecords = PendingCount;
+            if (pendingRecords == 0 && PendingDeletionCount == 0)
+            {
+                UpdateStatus(SyncStatus.Synced, "☁ 同期済");
+            }
+            else if (PendingDeletionCount > 0)
+            {
+                UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {pendingRecords}件");
+            }
+        }
+
         private void UpdateStatus(SyncStatus status, string message)
         {
             CurrentStatus = status;
@@ -280,6 +449,79 @@ namespace Tenko.Native.Services
             {
                 // 永続化に失敗してもメモリ上のキューと同期動作は継続する
                 Debug.WriteLine($"[ServerSyncService] Failed to persist pending queue: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 削除待ち Id を data/sync_deletes.json へ保存する（一時ファイル経由の原子的書き込み）。
+        /// </summary>
+        private void SavePendingDeletions()
+        {
+            if (string.IsNullOrEmpty(_deletePersistPath))
+            {
+                return;
+            }
+
+            try
+            {
+                List<string> snapshot;
+                lock (_lock)
+                {
+                    snapshot = _pendingDeletions.ToList();
+                }
+
+                lock (_persistLock)
+                {
+                    string? dir = Path.GetDirectoryName(_deletePersistPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+
+                    string tempPath = _deletePersistPath + ".tmp";
+                    File.WriteAllText(tempPath, JsonHelper.Serialize(snapshot));
+                    File.Move(tempPath, _deletePersistPath, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 永続化に失敗してもメモリ上のキューと同期動作は継続する
+                Debug.WriteLine($"[ServerSyncService] Failed to persist deletion queue: {ex.Message}");
+            }
+        }
+
+        private void LoadPendingDeletions()
+        {
+            if (string.IsNullOrEmpty(_deletePersistPath) || !File.Exists(_deletePersistPath))
+            {
+                return;
+            }
+
+            try
+            {
+                var loaded = JsonHelper.Deserialize<List<string>>(File.ReadAllText(_deletePersistPath));
+                if (loaded == null || loaded.Count == 0)
+                {
+                    return;
+                }
+
+                lock (_lock)
+                {
+                    foreach (var id in loaded)
+                    {
+                        if (!_pendingDeletions.Contains(id))
+                        {
+                            _pendingDeletions.Add(id);
+                        }
+                    }
+                }
+
+                Debug.WriteLine($"[ServerSyncService] Restored {loaded.Count} pending deletion(s) from {_deletePersistPath}.");
+            }
+            catch (Exception ex)
+            {
+                // 破損していた場合は削除キューを諦めて空の状態で起動する
+                Debug.WriteLine($"[ServerSyncService] Failed to load pending deletions: {ex.Message}");
             }
         }
 

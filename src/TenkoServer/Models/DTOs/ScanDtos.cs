@@ -29,4 +29,17 @@ namespace TenkoServer.Models.DTOs
         public int NotificationQueuedCount { get; set; }
         public string? Message { get; set; }
     }
+
+    public class ScanDeleteRequestDto
+    {
+        public string ClientId { get; set; } = string.Empty;
+        public List<string> Ids { get; set; } = new();
+    }
+
+    public class ScanDeleteResponseDto
+    {
+        public bool Success { get; set; } = true;
+        public int DeletedCount { get; set; }
+        public string? Message { get; set; }
+    }
 }

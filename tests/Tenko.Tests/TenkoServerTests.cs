@@ -18,6 +18,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using TenkoServer.Controllers;
 using TenkoServer.Data;
+using TenkoServer.Data.Models;
 using TenkoServer.Models;
 using TenkoServer.Models.DTOs;
 using TenkoServer.Services;
@@ -122,6 +123,98 @@ namespace Tenko.Tests
             Assert.Equal(0, dupResponse.AcceptedCount);
             Assert.Equal(2, dupResponse.DuplicateCount);
             Assert.Equal(0, dupResponse.NotificationQueuedCount);
+        }
+
+        [Fact]
+        public async Task ScansController_AcceptsDifferentLocation_AndSuppressesDuplicateNotification()
+        {
+            var optionsWrapper = Options.Create(_options);
+            var mockEnv = new MockWebHostEnvironment();
+            var studentMaster = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
+            var queue = new NotificationQueue();
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+
+            var controller = new ScansController(_db, queue, notifState, studentMaster, NullLogger<ScansController>.Instance);
+
+            ScanBatchRequestDto CreateBatch(string id, string location) => new ScanBatchRequestDto
+            {
+                ClientId = "terminal-A",
+                Records = new List<ScanItemDto>
+                {
+                    new ScanItemDto
+                    {
+                        Id = id,
+                        Barcode = "21021",
+                        Last5 = 21021,
+                        Location = location,
+                        Timestamp = new DateTime(2026, 8, 22, 9, 0, 0)
+                    }
+                }
+            };
+
+            // 1件目: 当日初回スキャン -> 受理 + 通知キュー投入
+            var r1 = Assert.IsType<OkObjectResult>((await controller.PostScans(CreateBatch("s-1", "2棟2階"))).Result);
+            var resp1 = Assert.IsType<ScanBatchResponseDto>(r1.Value);
+            Assert.Equal(1, resp1.AcceptedCount);
+            Assert.Equal(1, resp1.NotificationQueuedCount);
+
+            // 2件目: 同日・同学籍番号だが Location 違い -> 受理されるが通知は抑止される
+            var r2 = Assert.IsType<OkObjectResult>((await controller.PostScans(CreateBatch("s-2", "5棟1階"))).Result);
+            var resp2 = Assert.IsType<ScanBatchResponseDto>(r2.Value);
+            Assert.Equal(1, resp2.AcceptedCount);
+            Assert.Equal(0, resp2.DuplicateCount);
+            Assert.Equal(0, resp2.NotificationQueuedCount);
+
+            // 3件目: 同日・同学籍番号・同一 Location -> 重複拒否
+            var r3 = Assert.IsType<OkObjectResult>((await controller.PostScans(CreateBatch("s-3", "2棟2階"))).Result);
+            var resp3 = Assert.IsType<ScanBatchResponseDto>(r3.Value);
+            Assert.Equal(0, resp3.AcceptedCount);
+            Assert.Equal(1, resp3.DuplicateCount);
+            Assert.Equal(0, resp3.NotificationQueuedCount);
+
+            Assert.Equal(2, await _db.Scans.CountAsync());
+        }
+
+        [Fact]
+        public async Task ScansController_DeleteScans_RemovesOnlyMatchingClientRecords()
+        {
+            var optionsWrapper = Options.Create(_options);
+            var mockEnv = new MockWebHostEnvironment();
+            var studentMaster = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
+            var queue = new NotificationQueue();
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+
+            var controller = new ScansController(_db, queue, notifState, studentMaster, NullLogger<ScansController>.Instance);
+
+            DateTime ts = new DateTime(2026, 8, 22, 9, 0, 0);
+            _db.Scans.Add(new ScanEntity
+            {
+                Id = "own-1", Timestamp = ts, Barcode = "21021", Last5 = 21021,
+                StudentName = "A", StudentCode = "c1", Location = "2棟2階",
+                ClientId = "terminal-A", ReceivedAt = DateTime.UtcNow, ScanDate = "2026-08-22"
+            });
+            _db.Scans.Add(new ScanEntity
+            {
+                Id = "other-1", Timestamp = ts, Barcode = "23213", Last5 = 23213,
+                StudentName = "B", StudentCode = "c2", Location = "2棟2階",
+                ClientId = "terminal-B", ReceivedAt = DateTime.UtcNow, ScanDate = "2026-08-22"
+            });
+            await _db.SaveChangesAsync();
+
+            var result = await controller.DeleteScans(new ScanDeleteRequestDto
+            {
+                ClientId = "terminal-A",
+                Ids = new List<string> { "own-1", "other-1", "unknown-1" }
+            });
+
+            var ok = Assert.IsType<OkObjectResult>(result.Result);
+            var response = Assert.IsType<ScanDeleteResponseDto>(ok.Value);
+            Assert.True(response.Success);
+            // 自端末のレコードのみ削除。他端末のレコードと存在しない Id は no-op
+            Assert.Equal(1, response.DeletedCount);
+
+            Assert.Null(await _db.Scans.FindAsync("own-1"));
+            Assert.NotNull(await _db.Scans.FindAsync("other-1"));
         }
 
         [Fact]
@@ -608,6 +701,132 @@ namespace Tenko.Tests
             finally
             {
                 if (File.Exists(persistPath)) File.Delete(persistPath);
+            }
+        }
+
+        [Fact]
+        public async Task ServerSyncService_DeletionQueue_PersistsAcrossRestarts_AndFlushes()
+        {
+            if (!Tenko.Native.Generated.EmbeddedServerConfig.IsEnabled)
+            {
+                return; // サーバー設定が埋め込まれていないビルドでは同期しない
+            }
+
+            string dir = Path.Combine(Path.GetTempPath(), "TenkoDelTest_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            string syncPath = Path.Combine(dir, "sync_queue.json");
+            string deletePath = Path.Combine(dir, "sync_deletes.json");
+            try
+            {
+                // 1) 削除要求を登録するが、削除APIは失敗させる -> sync_deletes.json に永続化される
+                var failingHandler = new MockHttpMessageHandler(req =>
+                    req.RequestUri?.AbsolutePath.EndsWith("/api/v1/scans/delete") == true
+                        ? new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError)
+                        : new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                        {
+                            Content = new StringContent("{\"success\":true,\"acceptedCount\":1}")
+                        });
+
+                using (var service = new Tenko.Native.Services.ServerSyncService(new HttpClient(failingHandler), syncPath))
+                {
+                    service.EnqueueDeletion("del-test-1");
+
+                    Assert.Equal(1, service.PendingDeletionCount);
+                    Assert.True(File.Exists(deletePath));
+                    Assert.Contains("del-test-1", File.ReadAllText(deletePath));
+                }
+
+                // 2) 再起動相当: 削除キューが復元され、成功ハンドラで送信されると消える
+                string? capturedBody = null;
+                var okHandler = new MockHttpMessageHandler(req =>
+                {
+                    if (req.RequestUri?.AbsolutePath.EndsWith("/api/v1/scans/delete") == true)
+                    {
+                        capturedBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    }
+                    return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("{\"success\":true,\"deletedCount\":1}")
+                    };
+                });
+
+                using (var restored = new Tenko.Native.Services.ServerSyncService(new HttpClient(okHandler), syncPath))
+                {
+                    Assert.Equal(1, restored.PendingDeletionCount);
+
+                    await restored.FlushDeletionsAsync();
+
+                    Assert.Equal(0, restored.PendingDeletionCount);
+                    Assert.NotNull(capturedBody);
+                    Assert.Contains("del-test-1", capturedBody!);
+                    Assert.Contains("\"clientId\"", capturedBody!);
+                    Assert.DoesNotContain("del-test-1", File.ReadAllText(deletePath));
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            }
+        }
+
+        [Fact]
+        public async Task ServerSyncService_RemovePendingRecord_SkipsUploadOfUnsentRecord()
+        {
+            if (!Tenko.Native.Generated.EmbeddedServerConfig.IsEnabled)
+            {
+                return; // サーバー設定が埋め込まれていないビルドでは同期しない
+            }
+
+            string dir = Path.Combine(Path.GetTempPath(), "TenkoDelTest2_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            string syncPath = Path.Combine(dir, "sync_queue.json");
+            try
+            {
+                var record = new Tenko.Native.Models.ScanRecord
+                {
+                    Id = "unsent-del-1",
+                    Barcode = "21021",
+                    Last5 = 21021,
+                    Location = "2棟2階",
+                    Timestamp = DateTime.Now
+                };
+
+                // 1) 送信失敗環境でエンキューした未送信レコードを、削除操作でキューから除外できる
+                var failingHandler = new MockHttpMessageHandler(_ =>
+                    new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+
+                using (var service = new Tenko.Native.Services.ServerSyncService(new HttpClient(failingHandler), syncPath))
+                {
+                    service.EnqueueRecord(record);
+
+                    Assert.Equal(1, service.PendingCount);
+                    Assert.True(service.RemovePendingRecord(record.Id));
+                    Assert.Equal(0, service.PendingCount);
+                }
+
+                // 2) 再起動後も除外済みレコードはアップロードされない
+                var capturedBodies = new ConcurrentQueue<string>();
+                var okHandler = new MockHttpMessageHandler(req =>
+                {
+                    capturedBodies.Enqueue(req.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                    return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("{\"success\":true,\"acceptedCount\":0}")
+                    };
+                });
+
+                using (var restored = new Tenko.Native.Services.ServerSyncService(new HttpClient(okHandler), syncPath))
+                {
+                    Assert.Equal(0, restored.PendingCount);
+
+                    await restored.SyncPendingAsync();
+
+                    Assert.Equal(0, capturedBodies.Count);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
             }
         }
     }

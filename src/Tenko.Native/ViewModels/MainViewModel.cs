@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,9 @@ namespace Tenko.Native.ViewModels
 {
     public class MainViewModel : ViewModelBase
     {
+        /// <summary>同一学籍番号の連続読み取り (誤読ノイズ) を無視する秒数</summary>
+        private const int ScanDebounceSeconds = 3;
+
         private readonly SettingsService _settingsService;
         private readonly HistoryService _historyService;
         private readonly ScanFileService _scanFileService;
@@ -34,6 +38,7 @@ namespace Tenko.Native.ViewModels
         private bool _isNotificationVisible = false;
         private string _syncStatusText = string.Empty;
         private List<ScanRecord> _allHistory = new();
+        private readonly Dictionary<ushort, DateTime> _recentScanAt = new();
 
         public ObservableCollection<ScanRecord> History { get; } = new();
         public ObservableCollection<string> Locations { get; } = new();
@@ -290,11 +295,20 @@ namespace Tenko.Native.ViewModels
             ExecuteWithNotify(() =>
             {
                 ushort last5 = ushort.Parse(barcode.Length >= 5 ? barcode.Substring(barcode.Length - 5) : barcode);
+
+                // 同一学籍番号の短時間連続読み取り (スキャナの誤読ノイズ) は無視する
+                DateTime now = DateTime.Now;
+                if (_recentScanAt.TryGetValue(last5, out DateTime lastAt) &&
+                    (now - lastAt).TotalSeconds < ScanDebounceSeconds)
+                {
+                    return;
+                }
+
                 var (name, code) = _studentService.GetStudentInfo(last5);
                 var record = new ScanRecord
                 {
                     Id = $"{DateTimeOffset.Now.ToUnixTimeMilliseconds()}_{last5:D5}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
-                    Timestamp = DateTime.Now,
+                    Timestamp = now,
                     Barcode = barcode,
                     Last5 = last5,
                     StudentName = name,
@@ -304,6 +318,16 @@ namespace Tenko.Native.ViewModels
 
                 _allHistory.Insert(0, record);
                 if (MatchesSearch(record)) History.Insert(0, record);
+
+                // 古いエントリを掃除して辞書の肥大化を防ぐ
+                if (_recentScanAt.Count > 512)
+                {
+                    foreach (var key in _recentScanAt.Where(kv => (now - kv.Value).TotalMinutes > 10).Select(kv => kv.Key).ToList())
+                    {
+                        _recentScanAt.Remove(key);
+                    }
+                }
+                _recentScanAt[last5] = now;
 
                 // 2秒間ハイライト
                 record.IsRecentlyAdded = true;
@@ -335,7 +359,19 @@ namespace Tenko.Native.ViewModels
                 History.Remove(record);
                 _historyService.SaveHistory(_allHistory);
                 _scanFileService.RemoveLast5(record.Location, record.Last5);
+                PropagateServerDeletion(record.Id);
             }, "レコードを削除しました。", "レコード削除失敗");
+        }
+
+        // 削除をサーバーへ反映する。
+        // 未送信のレコードは同期キューから除外し、送信済みの可能性があるレコードは削除キューへ投入する。
+        private void PropagateServerDeletion(string recordId)
+        {
+            if (_serverSyncService == null) return;
+            if (!_serverSyncService.RemovePendingRecord(recordId))
+            {
+                _serverSyncService.EnqueueDeletion(recordId);
+            }
         }
 
         // 現在ロケーションの履歴と bin ファイルを削除する。
@@ -353,6 +389,17 @@ namespace Tenko.Native.ViewModels
             // 履歴保存や削除の失敗でアプリが落ちないよう、通知付きでまとめて実行する。
             ExecuteWithNotify(() =>
             {
+                // サーバー反映のため、削除対象の Id を先に確保する
+                List<string> removedIds = _allHistory
+                    .Where(h => h.Location == CurrentLocation)
+                    .Select(h => h.Id)
+                    .ToList();
+
+                foreach (string id in removedIds)
+                {
+                    PropagateServerDeletion(id);
+                }
+
                 _allHistory.RemoveAll(h => h.Location == CurrentLocation);
                 History.Clear();
                 _historyService.SaveHistory(_allHistory);
