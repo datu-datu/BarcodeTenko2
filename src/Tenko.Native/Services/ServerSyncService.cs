@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -9,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using Tenko.Native.Generated;
+using Tenko.Native.Infrastructure;
 using Tenko.Native.Models;
 
 namespace Tenko.Native.Services
@@ -24,9 +26,16 @@ namespace Tenko.Native.Services
 
     public class ServerSyncService : IDisposable
     {
+        /// <summary>
+        /// 未送信レコードの永続化先ファイル名 (data/ 配下)
+        /// </summary>
+        public const string PersistFileName = "sync_queue.json";
+
         private readonly HttpClient _httpClient;
         private readonly List<ScanRecord> _pendingRecords = new();
         private readonly object _lock = new();
+        private readonly object _persistLock = new();
+        private readonly string? _persistPath;
         private readonly DispatcherTimer? _retryTimer;
         private bool _isSyncing = false;
 
@@ -39,13 +48,24 @@ namespace Tenko.Native.Services
             get { lock (_lock) return _pendingRecords.Count; }
         }
 
-        public ServerSyncService(HttpClient? httpClient = null)
+        public ServerSyncService(HttpClient? httpClient = null, string? persistFilePath = null)
         {
             _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            _persistPath = persistFilePath;
 
             if (EmbeddedServerConfig.IsEnabled && !string.IsNullOrWhiteSpace(EmbeddedServerConfig.ServerUrl))
             {
-                UpdateStatus(SyncStatus.Idle, "☁ 待機中");
+                // 前回終了時に送信できていなかったレコードを復元する
+                LoadPendingRecords();
+                int restored = PendingCount;
+                if (restored > 0)
+                {
+                    UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {restored}件");
+                }
+                else
+                {
+                    UpdateStatus(SyncStatus.Idle, "☁ 待機中");
+                }
 
                 // 定期リトライタイマー (30秒間隔)
                 _retryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
@@ -68,12 +88,19 @@ namespace Tenko.Native.Services
                 return;
             }
 
+            bool added = false;
             lock (_lock)
             {
                 if (!_pendingRecords.Any(r => r.Id == record.Id))
                 {
                     _pendingRecords.Add(record);
+                    added = true;
                 }
+            }
+
+            if (added)
+            {
+                SavePendingRecords();
             }
 
             // 非同期で即時送信
@@ -128,10 +155,16 @@ namespace Tenko.Native.Services
 
                 if (response.IsSuccessStatusCode)
                 {
+                    bool removed = false;
                     lock (_lock)
                     {
                         var sentIds = new HashSet<string>(batch.Select(b => b.Id));
-                        _pendingRecords.RemoveAll(r => sentIds.Contains(r.Id));
+                        removed = _pendingRecords.RemoveAll(r => sentIds.Contains(r.Id)) > 0;
+                    }
+
+                    if (removed)
+                    {
+                        SavePendingRecords();
                     }
 
                     int remaining = PendingCount;
@@ -171,6 +204,83 @@ namespace Tenko.Native.Services
             CurrentStatus = status;
             StatusMessage = message;
             OnStatusChanged?.Invoke(status, message);
+        }
+
+        /// <summary>
+        /// data/sync_queue.json から未送信レコードを復元する。
+        /// サーバー側は Id 重複排除を持つため、再送による二重記録は発生しない。
+        /// </summary>
+        private void LoadPendingRecords()
+        {
+            if (string.IsNullOrEmpty(_persistPath) || !File.Exists(_persistPath))
+            {
+                return;
+            }
+
+            try
+            {
+                var loaded = JsonHelper.Deserialize<List<ScanRecord>>(File.ReadAllText(_persistPath));
+                if (loaded == null || loaded.Count == 0)
+                {
+                    return;
+                }
+
+                lock (_lock)
+                {
+                    foreach (var record in loaded)
+                    {
+                        if (!_pendingRecords.Any(r => r.Id == record.Id))
+                        {
+                            _pendingRecords.Add(record);
+                        }
+                    }
+                }
+
+                Debug.WriteLine($"[ServerSyncService] Restored {loaded.Count} pending record(s) from {_persistPath}.");
+            }
+            catch (Exception ex)
+            {
+                // 破損していた場合はキューを諦めて空の状態で起動する（ローカル bin/history にはデータが残る）
+                Debug.WriteLine($"[ServerSyncService] Failed to load pending queue: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 未送信レコードを data/sync_queue.json へ保存する（一時ファイル経由の原子的書き込み）。
+        /// </summary>
+        private void SavePendingRecords()
+        {
+            if (string.IsNullOrEmpty(_persistPath))
+            {
+                return;
+            }
+
+            try
+            {
+                List<ScanRecord> snapshot;
+                lock (_lock)
+                {
+                    snapshot = _pendingRecords.ToList();
+                }
+
+                lock (_persistLock)
+                {
+                    string? dir = Path.GetDirectoryName(_persistPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+
+                    string tempPath = _persistPath + ".tmp";
+                    File.WriteAllText(tempPath, JsonHelper.Serialize(snapshot));
+                    File.Move(tempPath, _persistPath, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 永続化に失敗してもメモリ上のキューと同期動作は継続する
+                Debug.WriteLine($"[ServerSyncService] Failed to persist pending queue: {ex.Message}");
+            }
         }
 
         public void Dispose()

@@ -173,6 +173,7 @@ dotnet publish src/Tenko.Native -c Release
 |---|---|---|
 | スキャンバイナリ | `scans/ids_<場所>.bin` | 学籍番号下5桁を UInt16 Little Endian (2バイト) で連続記録 |
 | 履歴JSON | `data/history.json` | 全場所のスキャン日時・バーコード・氏名等の履歴ログ |
+| 同期キュー | `data/sync_queue.json` | サーバーへの未送信レコード（オフライン中に蓄積。起動時に自動復元・再送） |
 | 場所設定 | `data/settings.json` | 最後に選択した点呼場所 |
 | 場所リスト | `data/locations.json` | 実行時の点呼場所候補（配置しない場合は埋め込み値を使用） |
 | 締切時間 | `data/time.json` | 締切時刻候補リスト |

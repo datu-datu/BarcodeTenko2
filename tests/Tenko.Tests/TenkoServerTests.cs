@@ -302,6 +302,61 @@ namespace Tenko.Tests
                 Assert.Equal(Tenko.Native.Services.SyncStatus.Pending, syncService.CurrentStatus);
             }
         }
+
+        [Fact]
+        public async Task ServerSyncService_PersistsPendingQueueAcrossRestarts()
+        {
+            if (!Tenko.Native.Generated.EmbeddedServerConfig.IsEnabled)
+            {
+                return; // サーバー設定が埋め込まれていないビルドでは同期しない
+            }
+
+            string persistPath = Path.Combine(Path.GetTempPath(), "TenkoSync_" + Guid.NewGuid().ToString("N") + ".json");
+            try
+            {
+                var record = new Tenko.Native.Models.ScanRecord
+                {
+                    Id = "persist-test-1",
+                    Barcode = "21021",
+                    Last5 = 21021,
+                    StudentName = "太郎 花子",
+                    Location = "2棟2階",
+                    Timestamp = DateTime.Now
+                };
+
+                // 1) 送信失敗環境でエンキューすると、即座にファイルへ永続化される
+                using (var failingService = new Tenko.Native.Services.ServerSyncService(
+                    new HttpClient(new MockHttpMessageHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable))),
+                    persistPath))
+                {
+                    failingService.EnqueueRecord(record);
+
+                    Assert.True(File.Exists(persistPath));
+                    Assert.Contains("persist-test-1", File.ReadAllText(persistPath));
+                    Assert.Equal(1, failingService.PendingCount);
+                }
+
+                // 2) 新しいインスタンス（=アプリ再起動相当）でキューが復元される
+                using (var restoredService = new Tenko.Native.Services.ServerSyncService(
+                    new HttpClient(new MockHttpMessageHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("{\"success\":true}")
+                    })),
+                    persistPath))
+                {
+                    Assert.Equal(1, restoredService.PendingCount);
+
+                    await restoredService.SyncPendingAsync();
+
+                    Assert.Equal(0, restoredService.PendingCount);
+                    Assert.DoesNotContain("persist-test-1", File.ReadAllText(persistPath));
+                }
+            }
+            finally
+            {
+                if (File.Exists(persistPath)) File.Delete(persistPath);
+            }
+        }
     }
 
     internal class MockHttpMessageHandler : HttpMessageHandler

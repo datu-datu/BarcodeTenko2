@@ -30,7 +30,7 @@ namespace Tenko.Native
             var scanFileService = new ScanFileService(storage);
             var notificationService = new NotificationService();
             var studentService = new StudentService(storage);
-            var serverSyncService = new ServerSyncService();
+            var serverSyncService = new ServerSyncService(persistFilePath: storage.GetDataPath(ServerSyncService.PersistFileName));
 
             _viewModel = new MainViewModel(
                 settingsService,

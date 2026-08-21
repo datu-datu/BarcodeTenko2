@@ -34,7 +34,7 @@
 | SEC-09 | 運用 | docker-compose がリポジトリの `data/` を丸ごとコンテナへマウント | Low | 低 |
 | SEC-10 | セキュリティ | タイムスタンプがタイムゾーン情報なしで送受信され、日付集計が曖昧 | Medium | 中 |
 | BUG-03 | 不具合 | CSV/BIN エクスポートが検索フィルタ適用後の行だけ出力する | Medium | 低 |
-| BUG-04 | 信頼性 | 未同期レコードがメモリのみで保持され、アプリ終了で消失 | Medium | 中 |
+| BUG-04 ✅対応済 | 信頼性 | 未同期レコードがメモリのみで保持され、アプリ終了で消失 | Medium | 中 |
 | BUG-05 | 不具合 | 5桁入力 65536〜99999 が検証を通過後、ushort 解析で例外経由になる | Low | 低 |
 | BUG-06 | テスト | 単体テストが実 bin フォルダへ書き込み、設定ファイルを共有改変する | Medium | 中 |
 | BUG-07 | テスト | ServerSyncService テストにバックグラウンドタスク競合によるフレーキー懸念 | Low | 低 |
@@ -244,7 +244,7 @@ const today = new Date().toISOString().split('T')[0];
 3. **計画的に**
    - READ-01: 共有ライブラリ化（復号ロジック統合）
    - SEC-06: 通知の永続キュー化 + リトライ
-   - BUG-04: 同期キューの永続化
+   - ✅ BUG-04: 同期キューの永続化 → **対応済み (data/sync_queue.json 永続化)**
    - SEC-10: DateTimeOffset 化
 
 ---
@@ -268,6 +268,12 @@ const today = new Date().toISOString().split('T')[0];
 | SEC-02 | `data/server.json` を `https://datu.f5.si` + ランダム 256bit API キーへ更新 | ファイル確認 |
 | SEC-01 | `Program.cs` に `AddRateLimiter`（IP 単位固定ウィンドウ 5回/分）+ `AuthController.Login` へ `[EnableRateLimiting("auth")]`。Caddy 経由の実 IP 取得のため `UseForwardedHeaders` も追加。429 時は JSON メッセージを返却 | 実機テスト: 誤パスワード5回 → HTTP 401、6回目 → **HTTP 429** |
 | SEC-04 | `TenkoServerOptions` の既定値を空文字列化、`appsettings.json` の平文資格情報を削除、`docker-compose.yml` を `${VAR:?}` 必須構文化、README / tenkoserver-guide.md の旧パスワード記載を修正（漏洩済み値のローテーション注意書きも追記）。未設定時は起動時に `InvalidOperationException` で即座に失敗 | 実機テスト: 未設定起動 → 明確なエラーメッセージで異常終了することを確認 |
+| BUG-04 (2026-08-21 追補) | `ServerSyncService` に未送信レコードの永続化を実装。`MainWindow` から `data/sync_queue.json` を渡し、①エンキュー時・②送信成功時に一時ファイル経由の原子的書き込み、③起動時に復元（サーバー側 Id 重複排除により再送安全）。破損時は空キューで起動 | 単体テスト `ServerSyncService_PersistsPendingQueueAcrossRestarts` を追加（失敗環境でエンキュー→ファイル永続化→再起動相当で復元→同期成功後クリア、を検証）。テスト **14/14 合格** |
+
+**BUG-04 対応の設計メモ**:
+- 復元したレコードの再送は 30 秒間隔のリトライタイマーが担当（起動直後の不要なネットワーク IO を避けるため即時送信は行わない）。
+- 同期無効ビルド（server.json 未埋め込み）では従来通りキューは動作しない。
+- 既知の範囲外事項: ユーザーがローカル履歴からレコード削除しても、既にエンキュー済みのデータは送信される（削除伝播は BUG-02/SEC-06 と合わせた将来課題）。
 
 **デプロイ時の必須作業（運用側）**:
 1. サーバー側で `TENKO_API_KEY=oAYc0dCfdfXO9aEOLO1txvZciZV8T7no2SQolS2JMZA`（または再生成した値）と新しい `TENKO_ADMIN_PASSWORD` を設定して再デプロイする。
