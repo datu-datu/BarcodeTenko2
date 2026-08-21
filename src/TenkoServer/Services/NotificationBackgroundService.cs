@@ -19,7 +19,9 @@ namespace TenkoServer.Services
     /// 通知キューからタスクを取り出し、Power Automate Webhook へバッチ集約送信する。
     /// Teams Webhook / Power Automate の 1分あたり受信制限を回避するため、
     /// 「最大 MaxNotificationsPerBatch 件」または「最後のスキャンから NotificationBatchWindowSeconds 秒経過」
-    /// を条件に複数件を 1 通の JSON 配列として POST する。
+    /// を条件に複数件を 1 通のリクエストとして POST する。
+    /// 送信ボディは { "items": [ { studentNumber, location, timestamp }, ... ] } 形式
+    /// （Teams Webhook がトップレベル配列を受け付けないため items プロパティで包む）。
     /// また個人情報保護のため、送信ペイロードは studentNumber / location / timestamp のみとする
     /// （氏名・メールアドレス等は Power Automate 側で M365 テナント情報から解決する）。
     /// </summary>
@@ -117,12 +119,16 @@ namespace TenkoServer.Services
 
             // 個人情報（宛先メールアドレス・氏名・出席番号・端末ID）は送信しない。
             // Power Automate 側で学籍番号から M365 テナント情報を動的に解決する。
-            var payload = batch.Select(t => new
+            // Teams Webhook はトップレベルの JSON 配列を受け付けないため、items プロパティで包む。
+            var payload = new
             {
-                studentNumber = t.StudentNumber,
-                location = t.Location,
-                timestamp = t.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
-            });
+                items = batch.Select(t => new
+                {
+                    studentNumber = t.StudentNumber,
+                    location = t.Location,
+                    timestamp = t.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+                }).ToList()
+            };
 
             bool isSuccess = false;
             int statusCode = 0;

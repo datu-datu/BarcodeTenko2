@@ -547,9 +547,11 @@ namespace Tenko.Tests
 
             string firstBody = capturedBodies.ToArray()[0];
             using var doc = JsonDocument.Parse(firstBody);
-            Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+            Assert.Equal(JsonValueKind.Object, doc.RootElement.ValueKind);
+            Assert.True(doc.RootElement.TryGetProperty("items", out var itemsProperty));
+            Assert.Equal(JsonValueKind.Array, itemsProperty.ValueKind);
 
-            var items = doc.RootElement.EnumerateArray().ToList();
+            var items = itemsProperty.EnumerateArray().ToList();
             Assert.Equal(20, items.Count);
             foreach (var item in items)
             {
@@ -575,7 +577,8 @@ namespace Tenko.Tests
             }
 
             using var secondDoc = JsonDocument.Parse(secondBody);
-            Assert.Equal(5, secondDoc.RootElement.EnumerateArray().Count());
+            Assert.True(secondDoc.RootElement.TryGetProperty("items", out var secondItems));
+            Assert.Equal(5, secondItems.EnumerateArray().Count());
 
             // 送信結果が DB ログに記録されていること
             Assert.Equal(25, _db.NotificationLogs.Count());
