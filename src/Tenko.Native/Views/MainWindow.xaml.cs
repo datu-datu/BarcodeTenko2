@@ -19,15 +19,17 @@ namespace Tenko.Native
         private DateTime? _nearestDeadline;
         private FileSystemWatcher? _deadlineWatcher;
 
+        // 画面初期化とサービスの組み立て、各種イベントを登録する。
         public MainWindow()
         {
             InitializeComponent();
 
-            var settingsService = new SettingsService();
-            var historyService = new HistoryService();
-            var scanFileService = new ScanFileService();
+            var storage = new StorageService();
+            var settingsService = new SettingsService(storage);
+            var historyService = new HistoryService(storage);
+            var scanFileService = new ScanFileService(storage);
             var notificationService = new NotificationService();
-            var studentService = new StudentService();
+            var studentService = new StudentService(storage);
 
             _viewModel = new MainViewModel(
                 settingsService,
@@ -53,37 +55,38 @@ namespace Tenko.Native
                 }
             };
 
-            // 初期フォーカス
+            // 起動直後に入力欄へフォーカスを移す。
             this.Loaded += (s, e) => ManualInputBox.Focus();
 
-            // Set up live clock for bottom-left
+            // 画面左下の時計表示を定期更新する。
             _clockTimer = new DispatcherTimer();
             _clockTimer.Interval = TimeSpan.FromSeconds(1);
             _clockTimer.Tick += ClockTimer_Tick;
             _clockTimer.Start();
 
-            // Load initial deadline and watch for changes in data/time.json
-            LoadDeadline();
+            // 締切の初期読み込みと data/time.json の更新監視を開始する。
+            LoadDeadline(storage);
             try
             {
-                string dataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+                string dataDir = storage.GetDataPath(string.Empty);
                 if (Directory.Exists(dataDir))
                 {
                     _deadlineWatcher = new FileSystemWatcher(dataDir, "time.json");
                     _deadlineWatcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName;
-                    _deadlineWatcher.Changed += (s, e) => Dispatcher.Invoke(() => LoadDeadline());
-                    _deadlineWatcher.Created += (s, e) => Dispatcher.Invoke(() => LoadDeadline());
-                    _deadlineWatcher.Deleted += (s, e) => Dispatcher.Invoke(() => LoadDeadline());
-                    _deadlineWatcher.Renamed += (s, e) => Dispatcher.Invoke(() => LoadDeadline());
+                    _deadlineWatcher.Changed += (s, e) => Dispatcher.Invoke(() => LoadDeadline(storage));
+                    _deadlineWatcher.Created += (s, e) => Dispatcher.Invoke(() => LoadDeadline(storage));
+                    _deadlineWatcher.Deleted += (s, e) => Dispatcher.Invoke(() => LoadDeadline(storage));
+                    _deadlineWatcher.Renamed += (s, e) => Dispatcher.Invoke(() => LoadDeadline(storage));
                     _deadlineWatcher.EnableRaisingEvents = true;
                 }
             }
             catch
             {
-                // ignore watcher errors
+                // 監視設定に失敗してもアプリは継続する。
             }
         }
 
+        // 画面終了時にタイマーや監視を確実に停止する。
         protected override void OnClosed(EventArgs e)
         {
             if (_clockTimer != null)
@@ -107,25 +110,27 @@ namespace Tenko.Native
             base.OnClosed(e);
         }
 
+        // 時計表示と締切表示を更新する。
         private void ClockTimer_Tick(object? sender, EventArgs? e)
         {
             CurrentTimeText.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-            // If we have a deadline, update its display if needed (e.g., show overdue styling in future)
+            // 締切がある場合は表示文言を更新する（将来の表示変更にも対応）。
             if (_nearestDeadline != null)
             {
-                // keep text updated in case we want to change formatting based on proximity in future
+                // 近さによるフォーマット変更にも対応できるよう毎回更新する。
                 DeadlineText.Text = "締切: " + _nearestDeadline.Value.ToString("yyyy-MM-dd HH:mm");
                 DeadlineText.Visibility = Visibility.Visible;
             }
         }
 
-        private void LoadDeadline()
+        // time.json を読み込み、次の締切を決定して表示する。
+        private void LoadDeadline(StorageService storage)
         {
             try
             {
-                string dataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "time.json");
-                if (!File.Exists(dataPath))
+                string dataPath = storage.GetDataPath("time.json");
+                if (!storage.Exists(dataPath))
                 {
                     DeadlineText.Visibility = Visibility.Collapsed;
                     _nearestDeadline = null;
@@ -169,7 +174,7 @@ namespace Tenko.Native
                     {
                         if (DateTime.TryParseExact(s, p, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeLocal, out dt))
                         {
-                            // ensure local kind for consistent comparison
+                            // 比較の一貫性のため Local として扱う。
                             if (dt.Kind == DateTimeKind.Unspecified) dt = DateTime.SpecifyKind(dt, DateTimeKind.Local);
                             parsed.Add(dt);
                             ok = true;
@@ -186,7 +191,7 @@ namespace Tenko.Native
                     }
                 }
 
-                // remove duplicates and sort ascending to be deterministic
+                // 重複を除去し、昇順で決定的に並べ替える。
                 parsed = parsed.Distinct().OrderBy(d => d.Ticks).ToList();
 
                 if (parsed.Count == 0)
@@ -197,7 +202,7 @@ namespace Tenko.Native
                 }
 
                 var now = DateTime.Now;
-                // choose the soonest date strictly after now
+                // 現在時刻より未来の中で最も近い締切を選ぶ。
                 var upcoming = parsed.Where(d => d > now).OrderBy(d => d.Ticks).FirstOrDefault();
                 if (upcoming != default(DateTime))
                 {
@@ -207,7 +212,7 @@ namespace Tenko.Native
                 }
                 else
                 {
-                    // no upcoming deadlines; hide display
+                    // 未来の締切がない場合は表示を隠す。
                     DeadlineText.Visibility = Visibility.Collapsed;
                     _nearestDeadline = null;
                 }
@@ -218,6 +223,8 @@ namespace Tenko.Native
                 _nearestDeadline = null;
             }
         }
+
+        // Enter でスキャン処理を実行し、入力欄へ再フォーカスする。
         private void ManualInputBox_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
@@ -228,17 +235,20 @@ namespace Tenko.Native
             }
         }
 
+        // 設定モーダルを表示する。
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
             SettingsModal.Visibility = Visibility.Visible;
         }
 
+        // 設定モーダルを閉じて入力欄へ戻す。
         private void CloseSettings_Click(object sender, RoutedEventArgs e)
         {
             SettingsModal.Visibility = Visibility.Collapsed;
             ManualInputBox.Focus();
         }
 
+        // ファイル名変更を実行し、入力欄へ戻す。
         private void RenameButton_Click(object sender, RoutedEventArgs e)
         {
             string newName = RenameTextBox.Text;
@@ -249,12 +259,14 @@ namespace Tenko.Native
             }
         }
 
+        // 警告表示を閉じる。
         private void DismissWarning_Click(object sender, RoutedEventArgs e)
         {
             _viewModel.ShowBinWarning = false;
             ManualInputBox.Focus();
         }
 
+        // 完了モーダルのファイル名変更を確定する。
         private void CompleteRenameButton_Click(object sender, RoutedEventArgs e)
         {
             string newName = CompleteRenameTextBox.Text;
@@ -267,6 +279,7 @@ namespace Tenko.Native
             }
         }
 
+        // 完了モーダルを閉じ、入力欄へ戻す。
         private void CancelComplete_Click(object sender, RoutedEventArgs e)
         {
             _viewModel.ShowCompleteModal = false;

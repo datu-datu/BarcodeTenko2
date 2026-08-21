@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    
+    <!-- Size optimization -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="..\..\data\students.enc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Link>data\students.enc</Link>
+    </None>
+    <Compile Include="$(IntermediateOutputPath)Generated\EmbeddedStudentsPassphrase.g.cs"
+             AutoGen="true"
+             DesignTime="true"
+             Visible="false" />
+  </ItemGroup>
+
+  <Target Name="GenerateEmbeddedStudentsPassphrase" BeforeTargets="BeforeCompile">
+    <PropertyGroup>
+      <StudentsPassphrasePath>$(MSBuildProjectDirectory)\..\..\data\students.passphrase</StudentsPassphrasePath>
+      <EmbeddedPassphraseSourcePath>$(IntermediateOutputPath)Generated\EmbeddedStudentsPassphrase.g.cs</EmbeddedPassphraseSourcePath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(StudentsPassphrasePath)')"
+           Text="students.passphrase not found. Create data\students.passphrase before build." />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Generate-EmbeddedPassphrase.ps1&quot; -InputPath &quot;$(StudentsPassphrasePath)&quot; -OutputPath &quot;$(EmbeddedPassphraseSourcePath)&quot;"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="High"
+          StandardErrorImportance="High" />
+    <Warning Text="[GenerateEmbeddedStudentsPassphrase] students.passphrase loaded and embedded from $(StudentsPassphrasePath)." />
+  </Target>
+
+</Project>

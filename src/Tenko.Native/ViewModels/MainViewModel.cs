@@ -38,6 +38,7 @@ namespace Tenko.Native.ViewModels
             NotificationService notificationService,
             StudentService studentService)
         {
+            // 依存サービスを受け取り、初期データとコマンドを準備する。
             _settingsService = settingsService;
             _historyService = historyService;
             _scanFileService = scanFileService;
@@ -185,6 +186,31 @@ namespace Tenko.Native.ViewModels
             }
         }
 
+        // ロケーションが選択されているか確認し、未選択なら通知を出す。
+        private bool EnsureLocationSelected()
+        {
+            if (string.IsNullOrEmpty(CurrentLocation))
+            {
+                _notificationService.Warning("スキャン場所を選択してください。");
+                return false;
+            }
+            return true;
+        }
+
+        // 共通の例外ハンドリングと通知処理を行う。
+        private void ExecuteWithNotify(Action action, string? successMessage = null, string errorPrefix = "処理失敗")
+        {
+            try
+            {
+                action();
+                if (!string.IsNullOrEmpty(successMessage)) _notificationService.Success(successMessage);
+            }
+            catch (Exception ex)
+            {
+                _notificationService.Error($"{errorPrefix}: {ex.Message}");
+            }
+        }
+
         // 現在ロケーションの bin ファイル有無を確認し、警告表示状態を更新する。
         private void CheckBinFile()
         {
@@ -195,12 +221,7 @@ namespace Tenko.Native.ViewModels
         private void SubmitManualInput()
         {
             if (string.IsNullOrWhiteSpace(ManualInput)) return;
-
-            if (string.IsNullOrEmpty(CurrentLocation))
-            {
-                _notificationService.Warning("スキャン場所を選択してください。");
-                return;
-            }
+            if (!EnsureLocationSelected()) return;
             
             // 数字以外は受け付けない。
             if (!ManualInput.All(char.IsDigit))
@@ -219,13 +240,10 @@ namespace Tenko.Native.ViewModels
             // 重複チェック (同一ロケーションで同一の学籍番号下5桁)
             if (!ushort.TryParse(ManualInput.Length >= 5 ? ManualInput.Substring(ManualInput.Length - 5) : ManualInput, out ushort last5))
             {
-                // ここに来ることは基本ない（事前に数字チェックと長さチェックがあるため）が、念のため。
                 _notificationService.Error("番号の解析に失敗しました。");
                 return;
             }
 
-            // 重複チェック (同一ロケーションで同一の学籍番号下5桁)
-            // UI上の History はフィルタリングされている可能性があるため、_allHistory からチェックする。
             if (_allHistory.Any(h => h.Location == CurrentLocation && h.Last5 == last5))
             {
                 _notificationService.Warning("この番号は既にスキャン済みです。");
@@ -240,19 +258,14 @@ namespace Tenko.Native.ViewModels
         // スキャン情報を履歴と bin に追記する。
         private void ProcessScan(string barcode)
         {
-            if (string.IsNullOrEmpty(CurrentLocation))
-            {
-                _notificationService.Warning("スキャン場所を選択してください。");
-                return;
-            }
+            if (!EnsureLocationSelected()) return;
 
-            try
+            ExecuteWithNotify(() =>
             {
                 ushort last5 = ushort.Parse(barcode.Length >= 5 ? barcode.Substring(barcode.Length - 5) : barcode);
                 var (name, code) = _studentService.GetStudentInfo(last5);
                 var record = new ScanRecord
                 {
-                    // 同一ミリ秒の衝突回避のため Guid 断片を付与する。
                     Id = $"{DateTimeOffset.Now.ToUnixTimeMilliseconds()}_{last5:D5}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
                     Timestamp = DateTime.Now,
                     Barcode = barcode,
@@ -263,28 +276,17 @@ namespace Tenko.Native.ViewModels
                 };
 
                 _allHistory.Insert(0, record);
-                if (MatchesSearch(record))
-                {
-                    History.Insert(0, record);
-                }
+                if (MatchesSearch(record)) History.Insert(0, record);
 
-                // 2秒間ハイライトする
+                // 2秒間ハイライト
                 record.IsRecentlyAdded = true;
                 var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-                timer.Tick += (s, e) =>
-                {
-                    record.IsRecentlyAdded = false;
-                    timer.Stop();
-                };
+                timer.Tick += (s, e) => { record.IsRecentlyAdded = false; timer.Stop(); };
                 timer.Start();
 
                 _historyService.SaveHistory(_allHistory);
                 _scanFileService.AppendLast5(CurrentLocation, last5);
-            }
-            catch (Exception ex)
-            {
-                _notificationService.Error($"スキャン処理失敗: {ex.Message}");
-            }
+            }, errorPrefix: "スキャン処理失敗");
         }
 
         // 指定レコードを履歴と bin から削除する。
@@ -300,24 +302,19 @@ namespace Tenko.Native.ViewModels
 
             if (result != MessageBoxResult.Yes) return;
 
-            try
+            ExecuteWithNotify(() =>
             {
                 _allHistory.Remove(record);
                 History.Remove(record);
                 _historyService.SaveHistory(_allHistory);
                 _scanFileService.RemoveLast5(record.Location, record.Last5);
-                _notificationService.Success("レコードを削除しました。");
-            }
-            catch (Exception ex)
-            {
-                _notificationService.Error($"レコード削除失敗: {ex.Message}");
-            }
+            }, "レコードを削除しました。", "レコード削除失敗");
         }
 
         // 現在ロケーションの履歴と bin ファイルを削除する。
         private void DeleteAll()
         {
-            if (string.IsNullOrEmpty(CurrentLocation)) return;
+            if (!EnsureLocationSelected()) return;
 
             var result = MessageBox.Show(
                 $"現在の「{CurrentLocation}」の履歴とバイナリデータを削除しますか？\n他のデータは削除されません。",
@@ -327,83 +324,65 @@ namespace Tenko.Native.ViewModels
 
             if (result != MessageBoxResult.Yes) return;
 
-            _allHistory.RemoveAll(h => h.Location == CurrentLocation);
-            History.Clear();
-            _historyService.SaveHistory(_allHistory);
-            _scanFileService.DeleteBin(CurrentLocation);
-            CheckBinFile();
-            _notificationService.Success($"現在の「{CurrentLocation}」の履歴を削除しました。");
+            // 履歴保存や削除の失敗でアプリが落ちないよう、通知付きでまとめて実行する。
+            ExecuteWithNotify(() =>
+            {
+                _allHistory.RemoveAll(h => h.Location == CurrentLocation);
+                History.Clear();
+                _historyService.SaveHistory(_allHistory);
+                _scanFileService.DeleteBin(CurrentLocation);
+                CheckBinFile();
+            }, successMessage: $"現在の「{CurrentLocation}」の履歴を削除しました。", errorPrefix: "履歴削除失敗");
         }
 
         // 現在ロケーションの既存 bin を別名へ退避し、履歴を初期化する。
         private void RenameBin(string? newName)
         {
-            if (string.IsNullOrEmpty(newName)) return;
-            if (string.IsNullOrEmpty(CurrentLocation)) return;
+            if (string.IsNullOrEmpty(newName) || !EnsureLocationSelected()) return;
             
-            // ファイル名として不正な文字を置換する。
+            // ファイル名として不正な文字を置換
             var invalidChars = Path.GetInvalidFileNameChars();
-            string sanitized = new string(newName
-                .Select(c => invalidChars.Contains(c) || char.IsControl(c) ? '_' : c)
-                .ToArray());
+            string sanitized = new string(newName.Select(c => invalidChars.Contains(c) || char.IsControl(c) ? '_' : c).ToArray());
 
-            try
+            ExecuteWithNotify(() =>
             {
                 _scanFileService.RenameBin(CurrentLocation, sanitized);
-                
-                // 退避後は現在ロケーションの新規計測として履歴をリセットする。
                 _allHistory.RemoveAll(h => h.Location == CurrentLocation);
                 History.Clear();
                 _historyService.SaveHistory(_allHistory);
                 
                 ShowBinWarning = false;
                 ShowCompleteModal = false;
-                _notificationService.Success($"ファイルを ids_{CurrentLocation}_{sanitized}.bin に退避しました。");
-            }
-            catch (Exception ex)
-            {
-                _notificationService.Error($"名前変更失敗: {ex.Message}");
-            }
+            }, $"ファイルを ids_{CurrentLocation}_{sanitized}.bin に退避しました。", "名前変更失敗");
         }
 
         // 現在の履歴を CSV 形式で出力する。
         private void ExportCsv()
         {
             if (History.Count == 0) return;
-            try
+            // 通知に表示するファイル名と実際の出力を一致させるため、ここで固定する。
+            string filename = $"scan_{CurrentLocation}_{DateTime.Now:yyyyMMddHHmm}.csv";
+            ExecuteWithNotify(() =>
             {
-                string filename = $"scan_{CurrentLocation}_{DateTime.Now:yyyyMMddHHmm}.csv";
                 using (var writer = new StreamWriter(filename))
                 {
                     writer.WriteLine("Timestamp,ID");
-                    foreach (var r in History)
-                    {
-                        writer.WriteLine($"{r.FormattedTimestamp},{r.Last5:D5}");
-                    }
+                    foreach (var r in History) writer.WriteLine($"{r.FormattedTimestamp},{r.Last5:D5}");
                 }
-                _notificationService.Success($"{filename} を出力しました。");
-            }
-            catch (Exception ex)
-            {
-                _notificationService.Error($"CSV出力失敗: {ex.Message}");
-            }
+            }, successMessage: $"{filename} を出力しました。", errorPrefix: "CSV出力失敗");
         }
 
         // 現在の履歴を Last5 の連続バイナリとして出力する。
         private void ExportBin()
         {
             if (History.Count == 0) return;
-            try
+            // 出力時刻を固定し、表示名と生成ファイルを一致させる。
+            string filename = $"ids_{CurrentLocation}_{DateTime.Now:yyyyMMddHHmm}.bin";
+            ExecuteWithNotify(() =>
             {
-                string filename = $"ids_{CurrentLocation}_{DateTime.Now:yyyyMMddHHmm}.bin";
                 var data = History.SelectMany(r => BitConverter.GetBytes(r.Last5)).ToArray();
                 File.WriteAllBytes(filename, data);
-                _notificationService.Success($"{filename} を出力しました。");
-            }
-            catch (Exception ex)
-            {
-                _notificationService.Error($"BIN出力失敗: {ex.Message}");
-            }
+            }, successMessage: $"{filename} を出力しました。", errorPrefix: "BIN出力失敗");
         }
 
         private DispatcherTimer? _notificationTimer;
@@ -416,16 +395,11 @@ namespace Tenko.Native.ViewModels
             IsNotificationVisible = true;
 
             _notificationTimer?.Stop();
-            _notificationTimer = new DispatcherTimer
+            if (_notificationTimer == null)
             {
-                Interval = TimeSpan.FromMilliseconds(2000)
-            };
-            _notificationTimer.Tick += (s, e) =>
-            {
-                IsNotificationVisible = false;
-                NotificationMessage = string.Empty;
-                _notificationTimer?.Stop();
-            };
+                _notificationTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                _notificationTimer.Tick += (s, e) => { IsNotificationVisible = false; _notificationTimer.Stop(); };
+            }
             _notificationTimer.Start();
         }
     }

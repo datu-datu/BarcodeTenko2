@@ -8,6 +8,7 @@ namespace Tenko.Native
 {
     public class NotificationTypeToBrushConverter : IValueConverter
     {
+        // 通知種別に応じて表示色のブラシを返す。
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             if (value is NotificationType type)
@@ -23,6 +24,7 @@ namespace Tenko.Native
             return Brushes.Gray;
         }
 
+        // 逆変換は使用しない。
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
             throw new NotImplementedException();

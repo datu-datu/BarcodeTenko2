@@ -4,10 +4,12 @@ obj/
 *.user
 *.userosscache
 *.sln
+!Tenko.sln
 
 ## [Data]
 data/history.json
 data/settings.json
+data/students.passphrase
 scans/
 
 ## [User Specific]
