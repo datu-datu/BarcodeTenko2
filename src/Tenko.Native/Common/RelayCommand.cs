@@ -1,7 +1,7 @@
 using System;
 using System.Windows.Input;
 
-namespace Tenko.Native.ViewModels
+namespace Tenko.Native.Common
 {
     public class RelayCommand : ICommand
     {

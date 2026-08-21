@@ -97,18 +97,6 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="エクスポート" FontSize="12" Margin="0,0,0,5" Foreground="{StaticResource TextSecondaryBrush}"/>
-                        <Grid Margin="0,0,0,15">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Button Grid.Column="0" Content="CSV" Command="{Binding ExportCsvCommand}" 
-                                    Style="{StaticResource ModernButton}" Margin="0,0,2,0"/>
-                            <Button Grid.Column="1" Content="BIN" Command="{Binding ExportBinCommand}" 
-                                    Style="{StaticResource ModernButton}" Margin="2,0,0,0"/>
-                        </Grid>
-
                         <Button Content="点呼完了" Command="{Binding OpenCompleteModalCommand}"
                                 IsEnabled="{Binding IsLocationSet}"
                                 Style="{StaticResource ModernButton}" Margin="0,0,0,5"/>
@@ -259,7 +247,21 @@
                     
                     <TextBlock Text="スキャン場所を選択" FontSize="11" Margin="0,0,0,5"/>
                     <ComboBox ItemsSource="{Binding Locations}" SelectedItem="{Binding CurrentLocation, Mode=TwoWay}" 
-                            Height="25" Margin="0,0,0,20"/>
+                            Height="25" Margin="0,0,0,15"/>
+                    
+                    <Separator Margin="0,0,0,15" Background="{StaticResource BorderBrush}"/>
+
+                    <TextBlock Text="エクスポート" FontSize="11" Margin="0,0,0,5"/>
+                    <Grid Margin="0,0,0,20">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="CSV" Command="{Binding ExportCsvCommand}" 
+                                Style="{StaticResource ModernButton}" Margin="0,0,2,0"/>
+                        <Button Grid.Column="1" Content="BIN" Command="{Binding ExportBinCommand}" 
+                                Style="{StaticResource ModernButton}" Margin="2,0,0,0"/>
+                    </Grid>
                     
                     <Button Content="閉じる" Click="CloseSettings_Click" Style="{StaticResource ModernButton}" HorizontalAlignment="Right"/>
                 </StackPanel>

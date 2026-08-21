@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace Tenko.Native.ViewModels
+namespace Tenko.Native.Common
 {
     public class ViewModelBase : INotifyPropertyChanged
     {

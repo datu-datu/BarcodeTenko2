@@ -6,7 +6,7 @@ using System.Linq;
 using System.Windows.Input;
 using Microsoft.Win32;
 using Tenko.Native.Services;
-using Tenko.Native.ViewModels;
+using Tenko.Native.Common;
 
 namespace ScanViewer.ViewModels
 {

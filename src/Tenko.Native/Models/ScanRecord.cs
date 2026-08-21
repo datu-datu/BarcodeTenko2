@@ -1,5 +1,5 @@
 using System;
-using Tenko.Native.ViewModels;
+using Tenko.Native.Common;
 
 namespace Tenko.Native.Models
 {

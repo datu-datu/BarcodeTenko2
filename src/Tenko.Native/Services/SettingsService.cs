@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using Tenko.Native.Generated;
 
 namespace Tenko.Native.Services
 {
@@ -13,7 +15,7 @@ namespace Tenko.Native.Services
         private readonly string _settingsPath;
         private readonly string _locationsPath;
         private AppSettings _settings = new();
-        private List<string> _locations = new() { "2棟2階", "第一体育館前", "本部横" };
+        private List<string> _locations = new();
 
         public SettingsService(StorageService storage)
         {
@@ -21,6 +23,7 @@ namespace Tenko.Native.Services
             _settingsPath = _storage.GetDataPath("settings.json");
             _locationsPath = _storage.GetDataPath("locations.json");
             
+            _locations = EmbeddedLocations.GetLocations().ToList();
             _settings = _storage.LoadJson<AppSettings>(_settingsPath) ?? new();
             LoadLocations();
         }
@@ -38,8 +41,15 @@ namespace Tenko.Native.Services
         private void LoadLocations()
         {
             var loaded = _storage.LoadJson<List<string>>(_locationsPath);
-            if (loaded != null) _locations = loaded;
-            else _storage.SaveJson(_locationsPath, _locations, indent: true);
+            if (loaded != null && loaded.Count > 0)
+            {
+                _locations = loaded;
+            }
+            else
+            {
+                _locations = EmbeddedLocations.GetLocations().ToList();
+                _storage.SaveJson(_locationsPath, _locations, indent: true);
+            }
         }
     }
 }

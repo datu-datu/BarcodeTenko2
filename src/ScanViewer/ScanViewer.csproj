@@ -1,7 +1,15 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Tenko.Native\Tenko.Native.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\data\students.enc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Link>data\students.enc</Link>
+    </None>
   </ItemGroup>
 
   <PropertyGroup>

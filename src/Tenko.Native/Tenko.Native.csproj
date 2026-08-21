@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -17,12 +17,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Update="..\..\data\students.enc">
+    <None Include="..\..\data\students.enc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <Link>data\students.enc</Link>
     </None>
     <Compile Include="$(IntermediateOutputPath)Generated\EmbeddedStudentsPassphrase.g.cs"
+             AutoGen="true"
+             DesignTime="true"
+             Visible="false" />
+    <Compile Include="$(IntermediateOutputPath)Generated\EmbeddedLocations.g.cs"
              AutoGen="true"
              DesignTime="true"
              Visible="false" />
@@ -40,6 +44,20 @@
           StandardOutputImportance="High"
           StandardErrorImportance="High" />
     <Warning Text="[GenerateEmbeddedStudentsPassphrase] students.passphrase loaded and embedded from $(StudentsPassphrasePath)." />
+  </Target>
+
+  <Target Name="GenerateEmbeddedLocations" BeforeTargets="BeforeCompile">
+    <PropertyGroup>
+      <LocationsJsonPath>$(MSBuildProjectDirectory)\..\..\data\locations.json</LocationsJsonPath>
+      <EmbeddedLocationsSourcePath>$(IntermediateOutputPath)Generated\EmbeddedLocations.g.cs</EmbeddedLocationsSourcePath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(LocationsJsonPath)')"
+           Text="locations.json not found. Create data\locations.json before build." />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Generate-EmbeddedLocations.ps1&quot; -InputPath &quot;$(LocationsJsonPath)&quot; -OutputPath &quot;$(EmbeddedLocationsSourcePath)&quot;"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="High"
+          StandardErrorImportance="High" />
+    <Warning Text="[GenerateEmbeddedLocations] locations.json loaded and embedded from $(LocationsJsonPath)." />
   </Target>
 
 </Project>

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using Tenko.Native.Infrastructure;
 
@@ -11,9 +12,9 @@ namespace Tenko.Native.Services
         private readonly string _scansDir;
 
         // 保存先ディレクトリを初期化し、必要なフォルダを作成する。
-        public StorageService()
+        public StorageService(string? baseDir = null)
         {
-            _baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            _baseDir = baseDir ?? AppDomain.CurrentDomain.BaseDirectory;
             _dataDir = Path.Combine(_baseDir, "data");
             _scansDir = Path.Combine(_baseDir, "scans");
 
@@ -45,7 +46,11 @@ namespace Tenko.Native.Services
             {
                 return JsonHelper.Deserialize<T>(File.ReadAllText(path));
             }
-            catch { return default; }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[StorageService] JSON load failed for '{path}': {ex.Message}");
+                return default;
+            }
         }
 
         // JSON をファイルへ保存する。

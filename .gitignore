@@ -9,11 +9,14 @@ obj/
 ## [Data]
 data/history.json
 data/settings.json
-data/students.passphrase
+*.passphrase
 scans/
+tools/data/
 
 ## [User Specific]
 .vs/
 .idea/
 *.swp
 *.LNK
+
+docs/

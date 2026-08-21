@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Tenko.Native.Common;
 using Tenko.Native.Models;
 using Tenko.Native.Services;
 
@@ -17,6 +18,10 @@ namespace Tenko.Native.ViewModels
         private readonly ScanFileService _scanFileService;
         private readonly NotificationService _notificationService;
         private readonly StudentService _studentService;
+
+        // 確認ダイアログのデリゲート（テスト時に差し替え可能）
+        public Func<string, string, MessageBoxImage, bool> ConfirmDialog { get; set; } =
+            (msg, title, icon) => MessageBox.Show(msg, title, MessageBoxButton.YesNo, icon) == MessageBoxResult.Yes;
 
         private string _manualInput = string.Empty;
         private string _searchText = string.Empty;
@@ -294,13 +299,12 @@ namespace Tenko.Native.ViewModels
         {
             if (record == null) return;
 
-            var result = MessageBox.Show(
+            bool confirmed = ConfirmDialog(
                 $"このレコードを削除しますか？\n時刻: {record.FormattedTimestamp}\nバーコード: {record.Barcode}",
                 "レコード削除の確認",
-                MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
 
-            if (result != MessageBoxResult.Yes) return;
+            if (!confirmed) return;
 
             ExecuteWithNotify(() =>
             {
@@ -316,13 +320,12 @@ namespace Tenko.Native.ViewModels
         {
             if (!EnsureLocationSelected()) return;
 
-            var result = MessageBox.Show(
+            bool confirmed = ConfirmDialog(
                 $"現在の「{CurrentLocation}」の履歴とバイナリデータを削除しますか？\n他のデータは削除されません。",
                 "履歴削除の確認",
-                MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
 
-            if (result != MessageBoxResult.Yes) return;
+            if (!confirmed) return;
 
             // 履歴保存や削除の失敗でアプリが落ちないよう、通知付きでまとめて実行する。
             ExecuteWithNotify(() =>
