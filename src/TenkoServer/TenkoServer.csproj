@@ -16,10 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\data\students.enc" Condition="Exists('..\..\data\students.enc')">
+    <!-- サーバーは学籍番号のみのリストを扱う (氏名等は含めない) -->
+    <None Include="..\..\data\students.txt" Condition="Exists('..\..\data\students.txt')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <Link>data\students.enc</Link>
+      <Link>data\students.txt</Link>
     </None>
   </ItemGroup>
 

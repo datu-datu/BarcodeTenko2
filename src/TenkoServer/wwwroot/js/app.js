@@ -458,7 +458,7 @@ async function loadUnverified() {
     const tbody = document.getElementById('unverifiedTableBody');
 
     if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--success); padding: 24px;">全員の点呼が完了しています</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; color: var(--success); padding: 24px;">全員の点呼が完了しています</td></tr>';
         return;
     }
 
@@ -467,8 +467,6 @@ async function loadUnverified() {
         html += `
             <tr>
                 <td class="font-mono">${escapeHtml(String(s.studentNumber).padStart(5, '0'))}</td>
-                <td><span class="badge badge-warning">${escapeHtml(s.code || '-')}</span></td>
-                <td><strong>${escapeHtml(s.name)}</strong></td>
                 <td><span class="badge badge-danger">未点呼</span></td>
             </tr>
         `;

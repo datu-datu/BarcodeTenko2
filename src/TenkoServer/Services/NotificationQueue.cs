@@ -9,8 +9,6 @@ namespace TenkoServer.Services
     {
         public string ScanId { get; set; } = string.Empty;
         public ushort StudentNumber { get; set; }
-        public string StudentName { get; set; } = string.Empty;
-        public string StudentCode { get; set; } = string.Empty;
         public string Location { get; set; } = string.Empty;
         public string ClientId { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; }

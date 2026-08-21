@@ -56,35 +56,26 @@ Docker ビルドでは、ファイルの変更がないレイヤーをキャッ�
 > [!NOTE]
 > **本番ランタイムイメージには Tenko.Native は含まれません**  
 > マルチステージビルドの `final` ステージ（実行環境）では、ビルドステージで発行された `TenkoServer.dll` とその依存ライブラリのみが抽出されるため、WPF クライアントのバイナリや余分なファイルはコンテナ内に残りません。
-> 
-> また、セキュリティベストプラクティスに基づき、暗号化パスフレーズは **ビルド時に Docker イメージへ焼き込まず、実行時に環境変数（`TENKO_STUDENTS_PASSPHRASE`）またはボリュームマウント（`data/students.passphrase`）から安全に注入** されます。
 
 ---
 
-## 3. 事前準備（暗号化データの生成）
+## 3. 事前準備（学籍番号リストの配置）
 
-TenkoServer を実行する前に、学生マスタと復号用パスフレーズを準備します。
+TenkoServer は個人情報を保持しません。サーバーに置くのは **学籍番号のみのリスト** `data/students.txt`（1行1番号）です。氏名・出席番号入りマスタ（`students.csv` / `students.enc`）はサーバーに配置しないでください。
 
-1. **パスフレーズの準備**:
-   `data/students.passphrase` を作成し、暗号化パスフレーズを1行で記述します（または起動時に環境変数 `TENKO_STUDENTS_PASSPHRASE` で渡すことも可能です）。
+1. **学籍番号リストの作成**:
+   `data/students.txt` を作成し、学籍番号下5桁を1行ずつ記述します（空行と `#` 始まりのコメント行は無視されます）。
    ```text
-   MySecurePassphrase2026!
+   # 2026年度 学生リスト
+   21021
+   23213
    ```
 
-2. **学生元データ CSV の作成**:
-   `data/students.csv` を作成します（ヘッダー: `student_number,name,code`）。
-   ```csv
-   student_number,name,code
-   21021,太郎 花子,4D23
-   23213,次郎 美咲,2M15
-   ```
+2. **氏名対応表はオフラインで管理**:
+   氏名・出席番号との対応表（`students.csv`）は運用者がリポジトリ外で安全に保管し、ダッシュボード上の番号から氏名を引くときにのみ使用します。端末側（Tenko.Native）は従来どおり暗号化マスタでローカル表示を行います。
 
-3. **学生データの暗号化（`students.enc` の生成）**:
-   PowerShell で暗号化スクリプトを実行します。
-   ```powershell
-   .\tools\Encrypt-StudentsCsv.ps1
-   ```
-   これにより `data/students.enc` が生成されます。
+> [!TIP]
+> サーバー侵害が発生した場合でも、漏洩するのは学籍番号の一覧と点呼記録のみです。氏名はどこにも保存されていません。
 
 ---
 
@@ -183,7 +174,6 @@ dotnet TenkoServer.dll
 | `SERVER_DOMAIN` | `localhost` | 公開ドメイン名（Caddy が自動で HTTPS 証明書を取得） |
 | `TENKO_API_KEY` | **(必須・既定値なし)** | 端末（クライアント）認証用 API キー（ヘッダー: `X-API-Key`）。ランダムな 256bit 相合の文字列を推奨 |
 | `TENKO_ADMIN_PASSWORD` | **(必須・既定値なし)** | Web 管理ダッシュボードのログインパスワード。推測困難な文字列を設定すること |
-| `TENKO_STUDENTS_PASSPHRASE` | *(空)* | 学生マスタ復号用パスフレーズ（`data/students.passphrase` または環境変数で設定） |
 | `TENKO_POWER_AUTOMATE_WEBHOOK_URL` | *(空)* | Power Automate の HTTP 要求受信トリガー URL。宛先メールアドレスは Power Automate 側で学籍番号から解決する |
 
 > [!CAUTION]
@@ -208,13 +198,13 @@ TenkoServer を構築したら、各クライアント端末側で `data/server.
 
 ## 7. トラブルシューティング
 
-### Q1. サーバー起動ログに `Students passphrase is empty` という警告が出る
-- **原因**: パスフレーズが設定されていません。
-- **対処**: `data/students.passphrase` ファイルを配置するか、環境変数 `TENKO_STUDENTS_PASSPHRASE` を設定してください。
+### Q1. サーバー起動ログに `students.txt not found in search paths` という警告が出る
+- **原因**: 学籍番号リストが配置されていません。
+- **対処**: `data/students.txt` を配置してください（1行1学籍番号）。未配置でもサーバーは起動しますが、マスタ人数が0名となり達成率・未点呼一覧が機能しません。
 
-### Q2. サーバー起動時に学生マスタが読み込まれない（未点呼者が0名になる）
-- **原因**: `data/students.enc` が配置されていないか、パスフレーズと暗号化時のパスフレーズが一致していません。
-- **対処**: `.\tools\Encrypt-StudentsCsv.ps1` を実行して `data/students.enc` を生成・配置し、正しいパスフレーズを設定してください。
+### Q2. 未点呼者一覧・達成率が正しく表示されない
+- **原因**: `data/students.txt` の内容が実際の学生リストと一致していません。
+- **対処**: 当該年度の学籍番号を1行ずつ記述した `data/students.txt` を配置し、コンテナを再起動してください。氏名はサーバーに保存されないため、番号から氏名の照合はオフラインの対応表で行ってください。
 
 ### Q3. Docker ビルド時に `COPY failed: file not found in build context` が出る
 - **原因**: ビルドコンテキストがリポジトリルート以外になっています。

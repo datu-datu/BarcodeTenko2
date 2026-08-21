@@ -49,7 +49,7 @@ namespace TenkoServer.Controllers
             var uniqueStudents = scans.Select(s => s.Last5).Distinct().ToList();
             int uniqueCount = uniqueStudents.Count;
 
-            var masterStudents = _studentMaster.GetAllStudents();
+            var masterStudents = _studentMaster.GetAllStudentNumbers();
             int totalMasterCount = masterStudents.Count;
             int unverifiedCount = totalMasterCount > 0 ? Math.Max(0, totalMasterCount - uniqueCount) : 0;
             double completionRate = totalMasterCount > 0 ? Math.Round((double)uniqueCount / totalMasterCount * 100, 1) : 0;
@@ -102,8 +102,6 @@ namespace TenkoServer.Controllers
             {
                 string lower = search.ToLower();
                 list = list.Where(s =>
-                    s.StudentName.ToLower().Contains(lower) ||
-                    s.StudentCode.ToLower().Contains(lower) ||
                     s.Last5.ToString("D5").Contains(lower) ||
                     s.Barcode.Contains(lower) ||
                     s.Location.ToLower().Contains(lower)).ToList();
@@ -407,8 +405,6 @@ namespace TenkoServer.Controllers
                 {
                     ScanId = s.Id,
                     StudentNumber = s.Last5,
-                    StudentName = s.StudentName,
-                    StudentCode = s.StudentCode,
                     Location = s.Location,
                     ClientId = s.ClientId,
                     Timestamp = s.Timestamp
@@ -463,8 +459,6 @@ namespace TenkoServer.Controllers
             {
                 ScanId = scan.Id,
                 StudentNumber = scan.Last5,
-                StudentName = scan.StudentName,
-                StudentCode = scan.StudentCode,
                 Location = scan.Location,
                 ClientId = scan.ClientId,
                 Timestamp = scan.Timestamp
@@ -474,7 +468,7 @@ namespace TenkoServer.Controllers
             {
                 Success = true,
                 QueuedCount = 1,
-                Message = $"{scan.StudentName}（学籍番号: {scan.Last5:D5}）への通知を送信キューに投入しました。"
+                Message = $"学籍番号 {scan.Last5:D5} の通知を送信キューに投入しました。"
             });
         }
     }

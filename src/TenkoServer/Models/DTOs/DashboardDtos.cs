@@ -14,11 +14,10 @@ namespace TenkoServer.Models.DTOs
         public List<ScanItemDto> RecentScans { get; set; } = new();
     }
 
+    /// <summary>未点呼の学生 (サーバーは学籍番号のみ保持するため氏名は含まない)</summary>
     public class UnverifiedStudentDto
     {
         public ushort StudentNumber { get; set; }
-        public string Name { get; set; } = string.Empty;
-        public string Code { get; set; } = string.Empty;
     }
 
     public class LoginRequestDto

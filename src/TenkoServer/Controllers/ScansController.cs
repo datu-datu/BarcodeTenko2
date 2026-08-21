@@ -19,20 +19,17 @@ namespace TenkoServer.Controllers
         private readonly TenkoDbContext _db;
         private readonly INotificationQueue _notificationQueue;
         private readonly INotificationStateService _notificationState;
-        private readonly IStudentMasterService _studentMaster;
         private readonly ILogger<ScansController> _logger;
 
         public ScansController(
             TenkoDbContext db,
             INotificationQueue notificationQueue,
             INotificationStateService notificationState,
-            IStudentMasterService studentMaster,
             ILogger<ScansController> logger)
         {
             _db = db;
             _notificationQueue = notificationQueue;
             _notificationState = notificationState;
-            _studentMaster = studentMaster;
             _logger = logger;
         }
 
@@ -79,19 +76,16 @@ namespace TenkoServer.Controllers
                     continue;
                 }
 
-                // サーバー側学生マスタから氏名・出席番号を解決
-                var (masterName, masterCode) = _studentMaster.GetStudentInfo(record.Last5);
-                string studentName = !string.IsNullOrWhiteSpace(masterName) ? masterName : (!string.IsNullOrWhiteSpace(record.StudentName) ? record.StudentName : "未登録");
-                string studentCode = !string.IsNullOrWhiteSpace(masterCode) ? masterCode : (!string.IsNullOrWhiteSpace(record.StudentCode) ? record.StudentCode : string.Empty);
-
+                // 個人情報保護: サーバーは学籍番号のみを扱う。
+                // クライアントから送られた氏名・出席番号は保存せず破棄する。
                 var entity = new ScanEntity
                 {
                     Id = record.Id,
                     Timestamp = record.Timestamp != default ? record.Timestamp : DateTime.Now,
                     Barcode = record.Barcode,
                     Last5 = record.Last5,
-                    StudentName = studentName,
-                    StudentCode = studentCode,
+                    StudentName = string.Empty,
+                    StudentCode = string.Empty,
                     Location = location,
                     ClientId = request.ClientId ?? string.Empty,
                     ReceivedAt = DateTime.UtcNow,
@@ -114,8 +108,6 @@ namespace TenkoServer.Controllers
                         {
                             ScanId = entity.Id,
                             StudentNumber = entity.Last5,
-                            StudentName = studentName,
-                            StudentCode = studentCode,
                             Location = entity.Location,
                             ClientId = entity.ClientId,
                             Timestamp = entity.Timestamp

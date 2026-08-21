@@ -10,7 +10,6 @@ services:
       # 秘密情報は既定値を持たない。未設定の場合はコンテナ起動時にエラーになる (:? 構文)
       - TenkoServer__ApiKey=${TENKO_API_KEY:?TENKO_API_KEY is required}
       - TenkoServer__AdminPassword=${TENKO_ADMIN_PASSWORD:?TENKO_ADMIN_PASSWORD is required}
-      - TenkoServer__StudentsPassphrase=${TENKO_STUDENTS_PASSPHRASE:-}
       - TenkoServer__PowerAutomateWebhookUrl=${TENKO_POWER_AUTOMATE_WEBHOOK_URL:-}
     volumes:
       - ../../data:/app/data

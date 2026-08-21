@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -59,13 +58,10 @@ namespace Tenko.Tests
         [Fact]
         public async Task ScansController_AcceptsAndDeduplicatesRecords()
         {
-            var optionsWrapper = Options.Create(_options);
-            var mockEnv = new MockWebHostEnvironment();
-            var studentMaster = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, studentMaster, NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, NullLogger<ScansController>.Instance);
 
             var batch = new ScanBatchRequestDto
             {
@@ -77,8 +73,8 @@ namespace Tenko.Tests
                         Id = "scan-1",
                         Barcode = "21021",
                         Last5 = 21021,
-                        StudentName = null, // 個人情報なし
-                        StudentCode = null, // 個人情報なし
+                        StudentName = "太郎 花子", // クライアントから送ってもサーバーは保存しない
+                        StudentCode = "4D23",
                         Location = "2棟2階",
                         Timestamp = new DateTime(2026, 8, 21, 10, 0, 0)
                     },
@@ -105,8 +101,14 @@ namespace Tenko.Tests
             Assert.Equal(0, response.DuplicateCount);
             Assert.Equal(2, response.NotificationQueuedCount);
 
-            // DB に保存されたか確認
+            // DB に保存されたか確認 (氏名・出席番号はクライアントから送られていても破棄される)
             Assert.Equal(2, await _db.Scans.CountAsync());
+            var saved = await _db.Scans.ToListAsync();
+            Assert.All(saved, s =>
+            {
+                Assert.Equal(string.Empty, s.StudentName);
+                Assert.Equal(string.Empty, s.StudentCode);
+            });
 
             // キューから通知タスクを取り出せるか確認
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -128,13 +130,10 @@ namespace Tenko.Tests
         [Fact]
         public async Task ScansController_AcceptsDifferentLocation_AndSuppressesDuplicateNotification()
         {
-            var optionsWrapper = Options.Create(_options);
-            var mockEnv = new MockWebHostEnvironment();
-            var studentMaster = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, studentMaster, NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, NullLogger<ScansController>.Instance);
 
             ScanBatchRequestDto CreateBatch(string id, string location) => new ScanBatchRequestDto
             {
@@ -178,13 +177,10 @@ namespace Tenko.Tests
         [Fact]
         public async Task ScansController_DeleteScans_RemovesOnlyMatchingClientRecords()
         {
-            var optionsWrapper = Options.Create(_options);
-            var mockEnv = new MockWebHostEnvironment();
-            var studentMaster = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, studentMaster, NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, NullLogger<ScansController>.Instance);
 
             DateTime ts = new DateTime(2026, 8, 22, 9, 0, 0);
             _db.Scans.Add(new ScanEntity
@@ -224,7 +220,7 @@ namespace Tenko.Tests
             var mockEnv = new MockWebHostEnvironment();
             var studentMaster = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
 
-            // テストデータを DB へ挿入
+            // テストデータを DB へ挿入 (新仕様では氏名・出席番号は保存されない)
             _db.Scans.AddRange(
                 new TenkoServer.Data.Models.ScanEntity
                 {
@@ -232,8 +228,8 @@ namespace Tenko.Tests
                     Timestamp = new DateTime(2026, 8, 21, 9, 0, 0),
                     Barcode = "21021",
                     Last5 = 21021,
-                    StudentName = "太郎 花子",
-                    StudentCode = "4D23",
+                    StudentName = string.Empty,
+                    StudentCode = string.Empty,
                     Location = "2棟2階",
                     ScanDate = "2026-08-21"
                 },
@@ -243,8 +239,8 @@ namespace Tenko.Tests
                     Timestamp = new DateTime(2026, 8, 21, 9, 30, 0),
                     Barcode = "23213",
                     Last5 = 23213,
-                    StudentName = "次郎 美咲",
-                    StudentCode = "2M15",
+                    StudentName = string.Empty,
+                    StudentCode = string.Empty,
                     Location = "本部横",
                     ScanDate = "2026-08-21"
                 }
@@ -266,12 +262,12 @@ namespace Tenko.Tests
             Assert.True(summary.ScansByLocation.ContainsKey("2棟2階"));
             Assert.True(summary.ScansByLocation.ContainsKey("本部横"));
 
-            // スキャン一覧取得
-            var scansResult = await controller.GetScans("2026-08-21", null, "花子");
+            // スキャン一覧取得 (学籍番号で検索)
+            var scansResult = await controller.GetScans("2026-08-21", null, "21021");
             var okScans = Assert.IsType<OkObjectResult>(scansResult.Result);
             var scansList = Assert.IsType<List<ScanItemDto>>(okScans.Value);
             Assert.Single(scansList);
-            Assert.Equal("太郎 花子", scansList[0].StudentName);
+            Assert.Equal(21021, scansList[0].Last5);
             Assert.False(scansList[0].NotificationSent);
 
             // 通知モード切り替え & 手動一括送信テスト
@@ -287,7 +283,6 @@ namespace Tenko.Tests
             var csvResult = await controller.ExportCsv("2026-08-21", null);
             var fileContentResult = Assert.IsType<FileContentResult>(csvResult);
             string csvContent = System.Text.Encoding.UTF8.GetString(fileContentResult.FileContents);
-            Assert.Contains("太郎 花子", csvContent);
             Assert.Contains("21021", csvContent);
 
             // BIN エクスポート (UInt16 Little Endian: 2レコード = 4バイト)
@@ -306,11 +301,11 @@ namespace Tenko.Tests
             {
                 var env = new MockWebHostEnvironment { ContentRootPath = masterDir };
                 var studentMaster = new StudentMasterService(Options.Create(_options), NullLogger<StudentMasterService>.Instance, env);
-                Assert.Equal(2, studentMaster.GetAllStudents().Count);
+                Assert.Equal(2, studentMaster.TotalCount);
 
                 var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
                 var queue = new NotificationQueue();
-                var scansController = new ScansController(_db, queue, notifState, studentMaster, NullLogger<ScansController>.Instance);
+                var scansController = new ScansController(_db, queue, notifState, NullLogger<ScansController>.Instance);
                 var dashboard = new DashboardController(_db, studentMaster, notifState, queue);
 
                 string today = DateTime.Today.ToString("yyyy-MM-dd");
@@ -400,7 +395,7 @@ namespace Tenko.Tests
                 var csvSession = await dashboard.ExportCsv(null, null, closeResp.SessionId);
                 var csvFile = Assert.IsType<FileContentResult>(csvSession);
                 string csvText = Encoding.UTF8.GetString(csvFile.FileContents);
-                Assert.Contains("太郎 花子", csvText);
+                Assert.Contains("21021", csvText);
                 Assert.Equal(2, csvText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length); // header + 1 row
 
                 // 9) エクスポート: date 指定時はアクティブ + アーカイブを合算（午前+午後 = 2件）
@@ -417,55 +412,14 @@ namespace Tenko.Tests
         }
 
         /// <summary>
-        /// テスト用の学生マスタ (students.enc + students.passphrase) を一時ディレクトリに生成する。
-        /// v2 形式 (AES-CBC + HMAC-SHA256, PBKDF2 200k) をツールと同じ手順で暗号化する。
+        /// テスト用の学生マスタ (students.txt) を一時ディレクトリに生成する。
         /// </summary>
         private static string CreateStudentMasterDirectory()
         {
             string dir = Path.Combine(Path.GetTempPath(), "TenkoMaster_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(dir, "data"));
 
-            const string passphrase = "test-passphrase";
-            const int keySize = 32;
-            string csv = "student_number,name,code\n21021,太郎 花子,4D23\n23213,次郎 美咲,2M15\n";
-
-            byte[] salt = new byte[16];
-            byte[] iv = new byte[16];
-
-            using var kdf = new Rfc2898DeriveBytes(passphrase, salt, 200_000, HashAlgorithmName.SHA256);
-            byte[] encKey = kdf.GetBytes(keySize);
-            byte[] macKey = kdf.GetBytes(keySize);
-
-            using var aes = Aes.Create();
-            aes.Mode = CipherMode.CBC;
-            aes.Padding = PaddingMode.PKCS7;
-            aes.Key = encKey;
-            aes.IV = iv;
-            using var encryptor = aes.CreateEncryptor();
-            byte[] plain = Encoding.UTF8.GetBytes(csv);
-            byte[] cipher = encryptor.TransformFinalBlock(plain, 0, plain.Length);
-
-            byte[] magic = Encoding.ASCII.GetBytes("TNKS");
-            byte[] payload = new byte[magic.Length + 1 + salt.Length + iv.Length + cipher.Length];
-            int offset = 0;
-            Array.Copy(magic, 0, payload, offset, magic.Length);
-            offset += magic.Length;
-            payload[offset++] = 2; // FileVersionAesCbcHmac
-            Array.Copy(salt, 0, payload, offset, salt.Length);
-            offset += salt.Length;
-            Array.Copy(iv, 0, payload, offset, iv.Length);
-            offset += iv.Length;
-            Array.Copy(cipher, 0, payload, offset, cipher.Length);
-
-            using var hmac = new HMACSHA256(macKey);
-            byte[] mac = hmac.ComputeHash(payload);
-
-            byte[] output = new byte[payload.Length + mac.Length];
-            Array.Copy(payload, 0, output, 0, payload.Length);
-            Array.Copy(mac, 0, output, payload.Length, mac.Length);
-
-            File.WriteAllBytes(Path.Combine(dir, "data", "students.enc"), output);
-            File.WriteAllText(Path.Combine(dir, "data", "students.passphrase"), passphrase);
+            File.WriteAllLines(Path.Combine(dir, "data", "students.txt"), new[] { "21021", "23213" });
             return dir;
         }
 
@@ -526,8 +480,6 @@ namespace Tenko.Tests
                 {
                     ScanId = $"scan-{i}",
                     StudentNumber = (ushort)(20000 + i),
-                    StudentName = $"氏名{i}",
-                    StudentCode = $"code-{i}",
                     Location = "2棟2階",
                     ClientId = $"terminal-{i}",
                     Timestamp = new DateTime(2026, 8, 21, 10, 0, 0).AddMinutes(i)

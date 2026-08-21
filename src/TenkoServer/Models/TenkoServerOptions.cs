@@ -17,11 +17,6 @@ namespace TenkoServer.Models
         public string AdminPassword { get; set; } = string.Empty;
 
         /// <summary>
-        /// 学生マスタ（students.enc）の復号用パスフレーズ（環境変数 TenkoServer__StudentsPassphrase または data/students.passphrase で指定）
-        /// </summary>
-        public string StudentsPassphrase { get; set; } = string.Empty;
-
-        /// <summary>
         /// Power Automate の HTTP 要求受信時 Webhook URL
         /// </summary>
         public string PowerAutomateWebhookUrl { get; set; } = string.Empty;

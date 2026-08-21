@@ -1,5 +1,10 @@
 # students.enc / students.passphrase 運用手順
 
+> [!IMPORTANT]
+> この暗号化マスタは **端末側アプリ（Tenko.Native / ScanViewer）専用** です。
+> TenkoServer は個人情報を保持しないため、`students.enc` はサーバーに配置しません。
+> サーバーには学籍番号のみの `data/students.txt`（1行1番号）を配置してください。詳細は [tenkoserver-guide.md](tenkoserver-guide.md) を参照。
+
 ## 前提
 - 学生マスタは **実行時** に `data\students.enc` を復号して読み込む。
 - 復号鍵は **ビルド時** に `data\students.passphrase` から読み込み、実行ファイルへ埋め込む。
