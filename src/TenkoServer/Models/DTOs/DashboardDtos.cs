@@ -32,4 +32,28 @@ namespace TenkoServer.Models.DTOs
         public bool Success { get; set; }
         public string? Message { get; set; }
     }
+
+    public class NotificationSettingsDto
+    {
+        public bool IsAutoSend { get; set; }
+        public bool IsWebhookConfigured { get; set; }
+    }
+
+    public class UpdateNotificationSettingsRequestDto
+    {
+        public bool IsAutoSend { get; set; }
+    }
+
+    public class SendNotificationsRequestDto
+    {
+        public string? Date { get; set; }
+        public List<string>? ScanIds { get; set; }
+    }
+
+    public class SendNotificationsResponseDto
+    {
+        public bool Success { get; set; } = true;
+        public int QueuedCount { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
 }

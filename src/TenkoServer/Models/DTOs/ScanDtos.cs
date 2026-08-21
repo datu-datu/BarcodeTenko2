@@ -12,6 +12,7 @@ namespace TenkoServer.Models.DTOs
         public string? StudentName { get; set; }
         public string? StudentCode { get; set; }
         public string Location { get; set; } = string.Empty;
+        public bool NotificationSent { get; set; }
     }
 
     public class ScanBatchRequestDto

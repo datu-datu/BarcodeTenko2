@@ -5,6 +5,16 @@
 let currentTab = 'scansTab';
 let autoRefreshTimer = null;
 let cachedUnverifiedEmails = [];
+let notificationSettings = { isAutoSend: true, isWebhookConfigured: false };
+
+/**
+ * ローカルタイムゾーン基準の今日の日付 (yyyy-MM-dd) を取得する
+ * (toISOString は UTC のため、朝9時前だと前日になる問題を回避)
+ */
+function getTodayLocal() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 /**
  * XSS対策: HTML 特殊文字のエスケープ処理
@@ -23,9 +33,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 認証状態チェック
     await checkAuth();
 
-    // 日付初期設定（今日）
+    // 日付初期設定（今日・ローカル基準）
     const dateInput = document.getElementById('dateSelect');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocal();
     dateInput.value = today;
     updateExportDateText(today);
 
@@ -33,7 +43,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
 
     // 初回データ読み込み
-    await refreshAllData();
+    await Promise.all([
+        refreshAllData(),
+        loadNotificationSettings()
+    ]);
 
     // 自動更新開始
     setupAutoRefresh();
@@ -66,14 +79,14 @@ function setupEventListeners() {
 
     // 今日ボタン
     document.getElementById('todayBtn').addEventListener('click', () => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = getTodayLocal();
         document.getElementById('dateSelect').value = today;
         updateExportDateText(today);
         refreshAllData();
     });
 
     // 再読み込みボタン
-    document.getElementById('refreshBtn').addEventListener('click', refreshAllData);
+    document.getElementById('refreshBtn').addEventListener('click', () => refreshAllData());
 
     // 検索入力 (デバウンス)
     let searchTimeout = null;
@@ -84,6 +97,23 @@ function setupEventListeners() {
 
     // 自動更新チェックボックス
     document.getElementById('autoRefreshCheck').addEventListener('change', setupAutoRefresh);
+
+    // 通知モード切り替えボタン
+    const toggleBtn = document.getElementById('notificationModeToggleBtn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', toggleNotificationMode);
+    }
+
+    // 本日分一括送信ボタン
+    const sendAllBtn = document.getElementById('sendAllNotificationsBtn');
+    if (sendAllBtn) {
+        sendAllBtn.addEventListener('click', sendAllNotifications);
+    }
+
+    const resendAllInLogsBtn = document.getElementById('resendAllInLogsBtn');
+    if (resendAllInLogsBtn) {
+        resendAllInLogsBtn.addEventListener('click', sendAllNotifications);
+    }
 
     // タブ切り替え
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -143,6 +173,105 @@ function setupAutoRefresh() {
                 refreshAllData(true);
             }
         }, 5000);
+    }
+}
+
+async function loadNotificationSettings() {
+    try {
+        const res = await fetch('/api/v1/dashboard/notification-settings');
+        if (!res.ok) return;
+        notificationSettings = await res.json();
+        updateNotificationModeUI();
+    } catch (err) {
+        console.error('Failed to load notification settings:', err);
+    }
+}
+
+function updateNotificationModeUI() {
+    const toggleBtn = document.getElementById('notificationModeToggleBtn');
+    if (!toggleBtn) return;
+
+    if (notificationSettings.isAutoSend) {
+        toggleBtn.innerText = '自動送信 [有効]';
+        toggleBtn.className = 'btn btn-primary btn-sm';
+        toggleBtn.title = '点呼スキャン時に即時メール送信されます（クリックで手動モードへ切替）';
+    } else {
+        toggleBtn.innerText = '手動送信 [待機中]';
+        toggleBtn.className = 'btn btn-outline btn-sm';
+        toggleBtn.title = '点呼スキャン時は送信せず、手動ボタンで送信します（クリックで自動モードへ切替）';
+    }
+}
+
+async function toggleNotificationMode() {
+    const newAutoSend = !notificationSettings.isAutoSend;
+    const modeName = newAutoSend ? '自動送信' : '手動送信';
+
+    try {
+        const res = await fetch('/api/v1/dashboard/notification-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isAutoSend: newAutoSend })
+        });
+
+        if (!res.ok) {
+            alert('通知設定の更新に失敗しました。');
+            return;
+        }
+
+        notificationSettings = await res.json();
+        updateNotificationModeUI();
+        alert(`メール送信モードを「${modeName}」に切り替えました。`);
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+async function sendAllNotifications() {
+    const date = document.getElementById('dateSelect').value || new Date().toISOString().split('T')[0];
+    if (!confirm(`対象日（${date}）の未送信の点呼者に対して、メールを一括送信しますか？`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/dashboard/notifications/send-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: date })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            alert(data.message || '送信キューに投入しました。');
+            await Promise.all([loadScans(), loadLogs()]);
+        } else {
+            alert(data.message || '送信に失敗しました。');
+        }
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+async function sendSingleNotification(scanId) {
+    if (!confirm('この学生へ点呼完了通知メールを送信しますか？')) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/dashboard/notifications/send-single', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scanIds: [scanId] })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            alert(data.message || '送信キューに投入しました。');
+            await Promise.all([loadScans(), loadLogs()]);
+        } else {
+            alert(data.message || '送信に失敗しました。');
+        }
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
     }
 }
 
@@ -209,13 +338,17 @@ async function loadScans() {
     document.getElementById('scansCountBadge').innerText = list.length;
 
     if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">点呼データはありません</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">点呼データはありません</td></tr>';
         return;
     }
 
     let html = '';
     for (const r of list) {
         const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+        const notificationCell = r.notificationSent
+            ? '<span class="badge badge-success">送信済</span>'
+            : `<span class="badge badge-muted">未送信</span> <button class="btn btn-xs btn-outline send-single-btn" data-scan-id="${escapeHtml(r.id)}">送信</button>`;
+
         html += `
             <tr>
                 <td class="font-mono">${escapeHtml(timeStr)}</td>
@@ -224,10 +357,21 @@ async function loadScans() {
                 <td><strong>${escapeHtml(r.studentName || '未登録')}</strong></td>
                 <td><span class="badge badge-success">${escapeHtml(r.location || '未設定')}</span></td>
                 <td class="font-mono" style="color: var(--text-muted);">${escapeHtml(r.barcode)}</td>
+                <td>${notificationCell}</td>
             </tr>
         `;
     }
     tbody.innerHTML = html;
+
+    // 個別送信ボタンのイベントバインド
+    tbody.querySelectorAll('.send-single-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const scanId = e.currentTarget.getAttribute('data-scan-id');
+            if (scanId) {
+                sendSingleNotification(scanId);
+            }
+        });
+    });
 }
 
 async function loadUnverified() {
@@ -241,7 +385,7 @@ async function loadUnverified() {
     cachedUnverifiedEmails = list.map(s => s.email).filter(Boolean);
 
     if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--success); padding: 24px;">🎉 全員点呼完了しています！</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--success); padding: 24px;">全員の点呼が完了しています</td></tr>';
         return;
     }
 

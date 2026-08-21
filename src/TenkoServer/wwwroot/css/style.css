@@ -56,8 +56,14 @@ body {
     gap: 12px;
 }
 
-.brand-icon {
-    font-size: 24px;
+.brand-badge {
+    background: var(--primary);
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    padding: 4px 8px;
+    border-radius: 4px;
 }
 
 .brand-title {
@@ -290,6 +296,27 @@ body {
 .badge-warning { background: #fef3c7; color: #b45309; }
 .badge-danger { background: #fee2e2; color: #b91c1c; }
 .badge-info { background: #e0f2fe; color: #0369a1; }
+.badge-muted { background: #f1f5f9; color: var(--text-muted); }
+
+/* --- Notification Panel --- */
+.notification-control-panel {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+}
+
+.notification-mode-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.control-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
 
 /* --- Buttons --- */
 .btn {
@@ -305,6 +332,17 @@ body {
     border: 1px solid transparent;
     transition: background-color 0.2s, opacity 0.2s;
     text-decoration: none;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.btn-xs {
+    padding: 2px 8px;
+    font-size: 11px;
+    border-radius: 4px;
 }
 
 .btn-primary {

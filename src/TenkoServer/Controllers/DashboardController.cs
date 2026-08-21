@@ -20,11 +20,19 @@ namespace TenkoServer.Controllers
     {
         private readonly TenkoDbContext _db;
         private readonly IStudentMasterService _studentMaster;
+        private readonly INotificationStateService _notificationState;
+        private readonly INotificationQueue _notificationQueue;
 
-        public DashboardController(TenkoDbContext db, IStudentMasterService studentMaster)
+        public DashboardController(
+            TenkoDbContext db,
+            IStudentMasterService studentMaster,
+            INotificationStateService notificationState,
+            INotificationQueue notificationQueue)
         {
             _db = db;
             _studentMaster = studentMaster;
+            _notificationState = notificationState;
+            _notificationQueue = notificationQueue;
         }
 
         [HttpGet("summary")]
@@ -100,6 +108,14 @@ namespace TenkoServer.Controllers
                     s.Location.ToLower().Contains(lower)).ToList();
             }
 
+            var scanIds = list.Select(s => s.Id).ToList();
+            var sentScanIds = await _db.NotificationLogs
+                .Where(l => scanIds.Contains(l.ScanId) && l.IsSuccess)
+                .Select(l => l.ScanId)
+                .Distinct()
+                .ToListAsync();
+            var sentSet = new HashSet<string>(sentScanIds);
+
             var result = list.Select(s => new ScanItemDto
             {
                 Id = s.Id,
@@ -108,7 +124,8 @@ namespace TenkoServer.Controllers
                 Last5 = s.Last5,
                 StudentName = s.StudentName,
                 StudentCode = s.StudentCode,
-                Location = s.Location
+                Location = s.Location,
+                NotificationSent = sentSet.Contains(s.Id)
             }).ToList();
 
             return Ok(result);
@@ -179,6 +196,155 @@ namespace TenkoServer.Controllers
                 .ToListAsync();
 
             return Ok(logs);
+        }
+
+        [HttpGet("notification-settings")]
+        public ActionResult<NotificationSettingsDto> GetNotificationSettings()
+        {
+            return Ok(new NotificationSettingsDto
+            {
+                IsAutoSend = _notificationState.IsAutoSendEnabled,
+                IsWebhookConfigured = _notificationState.IsWebhookConfigured
+            });
+        }
+
+        [HttpPost("notification-settings")]
+        public ActionResult<NotificationSettingsDto> UpdateNotificationSettings([FromBody] UpdateNotificationSettingsRequestDto request)
+        {
+            if (request != null)
+            {
+                _notificationState.IsAutoSendEnabled = request.IsAutoSend;
+            }
+
+            return Ok(new NotificationSettingsDto
+            {
+                IsAutoSend = _notificationState.IsAutoSendEnabled,
+                IsWebhookConfigured = _notificationState.IsWebhookConfigured
+            });
+        }
+
+        [HttpPost("notifications/send-all")]
+        public async Task<ActionResult<SendNotificationsResponseDto>> SendAllNotifications([FromBody] SendNotificationsRequestDto? request)
+        {
+            if (!_notificationState.IsWebhookConfigured)
+            {
+                return BadRequest(new SendNotificationsResponseDto
+                {
+                    Success = false,
+                    QueuedCount = 0,
+                    Message = "Webhook URL が設定されていません。"
+                });
+            }
+
+            string targetDate = string.IsNullOrWhiteSpace(request?.Date) ? DateTime.Today.ToString("yyyy-MM-dd") : request.Date;
+
+            // 対象日のスキャンを取得
+            var scans = await _db.Scans
+                .Where(s => s.ScanDate == targetDate)
+                .ToListAsync();
+
+            if (scans.Count == 0)
+            {
+                return Ok(new SendNotificationsResponseDto
+                {
+                    Success = true,
+                    QueuedCount = 0,
+                    Message = "送信対象のスキャンデータがありません。"
+                });
+            }
+
+            // 既に送信成功している ScanId を取得
+            var scanIds = scans.Select(s => s.Id).ToList();
+            var alreadySentScanIds = await _db.NotificationLogs
+                .Where(l => scanIds.Contains(l.ScanId) && l.IsSuccess)
+                .Select(l => l.ScanId)
+                .Distinct()
+                .ToListAsync();
+            var sentSet = new HashSet<string>(alreadySentScanIds);
+
+            // 未送信のスキャンのみを抽出
+            var toSend = scans.Where(s => !sentSet.Contains(s.Id)).ToList();
+            int queuedCount = 0;
+
+            foreach (var s in toSend)
+            {
+                var (_, _, studentEmail) = _studentMaster.GetStudentInfo(s.Last5);
+                await _notificationQueue.QueueNotificationAsync(new NotificationTask
+                {
+                    ScanId = s.Id,
+                    StudentNumber = s.Last5,
+                    StudentName = s.StudentName,
+                    StudentCode = s.StudentCode,
+                    Location = s.Location,
+                    ClientId = s.ClientId,
+                    Timestamp = s.Timestamp,
+                    ToEmail = studentEmail
+                });
+                queuedCount++;
+            }
+
+            return Ok(new SendNotificationsResponseDto
+            {
+                Success = true,
+                QueuedCount = queuedCount,
+                Message = $"{queuedCount} 件の通知送信をキューに投入しました。"
+            });
+        }
+
+        [HttpPost("notifications/send-single")]
+        public async Task<ActionResult<SendNotificationsResponseDto>> SendSingleNotification([FromBody] SendNotificationsRequestDto request)
+        {
+            if (!_notificationState.IsWebhookConfigured)
+            {
+                return BadRequest(new SendNotificationsResponseDto
+                {
+                    Success = false,
+                    QueuedCount = 0,
+                    Message = "Webhook URL が設定されていません。"
+                });
+            }
+
+            string? scanId = request?.ScanIds?.FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(scanId))
+            {
+                return BadRequest(new SendNotificationsResponseDto
+                {
+                    Success = false,
+                    QueuedCount = 0,
+                    Message = "スキャンIDが指定されていません。"
+                });
+            }
+
+            var scan = await _db.Scans.FirstOrDefaultAsync(s => s.Id == scanId);
+            if (scan == null)
+            {
+                return NotFound(new SendNotificationsResponseDto
+                {
+                    Success = false,
+                    QueuedCount = 0,
+                    Message = "指定されたスキャンが見つかりません。"
+                });
+            }
+
+            var (_, _, studentEmail) = _studentMaster.GetStudentInfo(scan.Last5);
+            await _notificationQueue.QueueNotificationAsync(new NotificationTask
+            {
+                ScanId = scan.Id,
+                StudentNumber = scan.Last5,
+                StudentName = scan.StudentName,
+                StudentCode = scan.StudentCode,
+                Location = scan.Location,
+                ClientId = scan.ClientId,
+                Timestamp = scan.Timestamp,
+                ToEmail = studentEmail
+            });
+
+            return Ok(new SendNotificationsResponseDto
+            {
+                Success = true,
+                QueuedCount = 1,
+                Message = $"{scan.StudentName}（学籍番号: {scan.Last5:D5}）への通知を送信キューに投入しました。"
+            });
         }
     }
 }

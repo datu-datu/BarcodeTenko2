@@ -17,17 +17,20 @@ namespace TenkoServer.Controllers
     {
         private readonly TenkoDbContext _db;
         private readonly INotificationQueue _notificationQueue;
+        private readonly INotificationStateService _notificationState;
         private readonly IStudentMasterService _studentMaster;
         private readonly ILogger<ScansController> _logger;
 
         public ScansController(
             TenkoDbContext db,
             INotificationQueue notificationQueue,
+            INotificationStateService notificationState,
             IStudentMasterService studentMaster,
             ILogger<ScansController> logger)
         {
             _db = db;
             _notificationQueue = notificationQueue;
+            _notificationState = notificationState;
             _studentMaster = studentMaster;
             _logger = logger;
         }
@@ -92,19 +95,22 @@ namespace TenkoServer.Controllers
                 _db.Scans.Add(entity);
                 acceptedCount++;
 
-                // 初回点呼なので通知キューへ投入
-                await _notificationQueue.QueueNotificationAsync(new NotificationTask
+                // 自動送信モードが有効な場合のみ通知キューへ投入
+                if (_notificationState.IsAutoSendEnabled)
                 {
-                    ScanId = entity.Id,
-                    StudentNumber = entity.Last5,
-                    StudentName = studentName,
-                    StudentCode = studentCode,
-                    Location = entity.Location,
-                    ClientId = entity.ClientId,
-                    Timestamp = entity.Timestamp,
-                    ToEmail = studentEmail
-                });
-                notificationCount++;
+                    await _notificationQueue.QueueNotificationAsync(new NotificationTask
+                    {
+                        ScanId = entity.Id,
+                        StudentNumber = entity.Last5,
+                        StudentName = studentName,
+                        StudentCode = studentCode,
+                        Location = entity.Location,
+                        ClientId = entity.ClientId,
+                        Timestamp = entity.Timestamp,
+                        ToEmail = studentEmail
+                    });
+                    notificationCount++;
+                }
             }
 
             if (acceptedCount > 0)

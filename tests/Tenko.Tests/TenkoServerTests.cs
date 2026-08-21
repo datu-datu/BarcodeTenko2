@@ -72,8 +72,9 @@ namespace Tenko.Tests
             var mockEnv = new MockWebHostEnvironment();
             var studentMaster = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
             var queue = new NotificationQueue();
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, studentMaster, NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, studentMaster, NullLogger<ScansController>.Instance);
 
             var batch = new ScanBatchRequestDto
             {
@@ -168,7 +169,9 @@ namespace Tenko.Tests
             );
             await _db.SaveChangesAsync();
 
-            var controller = new DashboardController(_db, studentMaster);
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+            var queue = new NotificationQueue();
+            var controller = new DashboardController(_db, studentMaster, notifState, queue);
 
             // サマリー取得
             var summaryResult = await controller.GetSummary("2026-08-21");
@@ -187,6 +190,16 @@ namespace Tenko.Tests
             var scansList = Assert.IsType<List<ScanItemDto>>(okScans.Value);
             Assert.Single(scansList);
             Assert.Equal("太郎 花子", scansList[0].StudentName);
+            Assert.False(scansList[0].NotificationSent);
+
+            // 通知モード切り替え & 手動一括送信テスト
+            var settingsResult = controller.GetNotificationSettings();
+            var okSettings = Assert.IsType<OkObjectResult>(settingsResult.Result);
+            var settings = Assert.IsType<NotificationSettingsDto>(okSettings.Value);
+            Assert.True(settings.IsAutoSend);
+
+            controller.UpdateNotificationSettings(new UpdateNotificationSettingsRequestDto { IsAutoSend = false });
+            Assert.False(notifState.IsAutoSendEnabled);
 
             // CSV エクスポート
             var csvResult = await controller.ExportCsv("2026-08-21", null);
@@ -314,5 +327,19 @@ namespace Tenko.Tests
         public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = null!;
         public string ContentRootPath { get; set; } = AppDomain.CurrentDomain.BaseDirectory;
         public string EnvironmentName { get; set; } = "Testing";
+    }
+
+    internal class MockOptionsMonitor<T> : IOptionsMonitor<T>
+    {
+        public T CurrentValue { get; private set; }
+
+        public MockOptionsMonitor(T value)
+        {
+            CurrentValue = value;
+        }
+
+        public T Get(string? name) => CurrentValue;
+
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 }

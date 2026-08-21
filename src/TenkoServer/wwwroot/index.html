@@ -11,7 +11,7 @@
         <!-- Top Navbar -->
         <header class="navbar">
             <div class="nav-brand">
-                <span class="brand-icon">📋</span>
+                <div class="brand-badge">TENKO</div>
                 <div>
                     <h1 class="brand-title">TenkoServer 管理ビュー</h1>
                     <p class="brand-sub">全拠点リアルタイム点呼管理 & 通知システム</p>
@@ -27,7 +27,7 @@
             </div>
         </header>
 
-        <!-- Date & Location Filter Bar -->
+        <!-- Date & Filter & Notification Control Bar -->
         <section class="filter-bar">
             <div class="filter-group">
                 <label for="dateSelect" style="font-size: 13px; font-weight: 600;">対象日付:</label>
@@ -35,8 +35,15 @@
                 <button id="todayBtn" class="btn btn-outline">今日</button>
             </div>
             <div class="filter-group">
-                <input type="text" id="searchInput" class="input-control" placeholder="氏名・番号・場所で検索..." style="min-width: 260px;">
-                <button id="refreshBtn" class="btn btn-primary">🔄 再読み込み</button>
+                <input type="text" id="searchInput" class="input-control" placeholder="氏名・番号・場所で検索..." style="min-width: 240px;">
+                <button id="refreshBtn" class="btn btn-primary">再読み込み</button>
+            </div>
+            <div class="notification-control-panel">
+                <div class="notification-mode-group">
+                    <span class="control-label">メール送信:</span>
+                    <button id="notificationModeToggleBtn" class="btn btn-outline btn-sm">自動送信 [有効]</button>
+                </div>
+                <button id="sendAllNotificationsBtn" class="btn btn-primary btn-sm">本日分を一括送信</button>
             </div>
         </section>
 
@@ -81,8 +88,10 @@
         <!-- Tab 1: Scans History -->
         <section id="scansTab" class="tab-content content-card">
             <div class="card-header-flex">
-                <h2 style="font-size: 16px;">スキャン履歴 (<span id="scansCountBadge">0</span>件)</h2>
-                <div style="font-size: 12px; color: var(--text-muted);">※ 最新の点呼が上に表示されます</div>
+                <div>
+                    <h2 style="font-size: 16px;">スキャン履歴 (<span id="scansCountBadge">0</span>件)</h2>
+                    <div style="font-size: 12px; color: var(--text-muted);">※ 最新の点呼が上に表示されます</div>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="data-table">
@@ -94,10 +103,11 @@
                             <th>氏名</th>
                             <th>スキャン場所</th>
                             <th>バーコード</th>
+                            <th>通知状態</th>
                         </tr>
                     </thead>
                     <tbody id="scansTableBody">
-                        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -110,7 +120,7 @@
                     <h2 style="font-size: 16px;">未点呼の学生一覧</h2>
                     <p style="font-size: 12px; color: var(--text-muted);">学生マスタに登録されており、本日まだ点呼が記録されていない学生です</p>
                 </div>
-                <button id="copyUnverifiedEmailsBtn" class="btn btn-outline" style="font-size: 12px;">📋 未点呼者メール一覧をコピー</button>
+                <button id="copyUnverifiedEmailsBtn" class="btn btn-outline" style="font-size: 12px;">未点呼者メール一覧をコピー</button>
             </div>
             <div class="table-responsive">
                 <table class="data-table">
@@ -133,8 +143,14 @@
         <!-- Tab 3: Notification Logs -->
         <section id="logsTab" class="tab-content content-card" style="display: none;">
             <div class="card-header-flex">
-                <h2 style="font-size: 16px;">Power Automate 通知送信ログ</h2>
-                <button id="refreshLogsBtn" class="btn btn-outline" style="font-size: 12px;">ログ更新</button>
+                <div>
+                    <h2 style="font-size: 16px;">Power Automate 通知送信ログ</h2>
+                    <p style="font-size: 12px; color: var(--text-muted);">Webhook へのリクエスト結果履歴</p>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button id="resendAllInLogsBtn" class="btn btn-primary" style="font-size: 12px;">本日分を一括送信</button>
+                    <button id="refreshLogsBtn" class="btn btn-outline" style="font-size: 12px;">ログ更新</button>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="data-table">
@@ -163,10 +179,10 @@
             </p>
             <div style="display: flex; gap: 16px;">
                 <button id="downloadCsvBtn" class="btn btn-primary" style="padding: 12px 24px; font-size: 14px;">
-                    📥 CSV形式でダウンロード
+                    CSV形式でダウンロード
                 </button>
                 <button id="downloadBinBtn" class="btn btn-outline" style="padding: 12px 24px; font-size: 14px;">
-                    💾 BIN形式（UInt16）でダウンロード
+                    BIN形式（UInt16）でダウンロード
                 </button>
             </div>
         </section>
