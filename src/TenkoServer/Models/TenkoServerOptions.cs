@@ -6,13 +6,15 @@ namespace TenkoServer.Models
 
         /// <summary>
         /// 端末（Tenko.Native）通信用の API キー (ヘッダー X-API-Key で検証)
+        /// 未設定の場合は起動時にエラーとなる
         /// </summary>
-        public string ApiKey { get; set; } = "secret-tenko-api-key-change-me";
+        public string ApiKey { get; set; } = string.Empty;
 
         /// <summary>
         /// Web管理ビューのログインパスワード
+        /// 未設定の場合は起動時にエラーとなる
         /// </summary>
-        public string AdminPassword { get; set; } = "admin1234";
+        public string AdminPassword { get; set; } = string.Empty;
 
         /// <summary>
         /// 学生マスタ（students.enc）の復号用パスフレーズ（環境変数 TenkoServer__StudentsPassphrase または data/students.passphrase で指定）

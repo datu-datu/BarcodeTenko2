@@ -21,12 +21,12 @@
 
 | ID | 分類 | 概要 | 重要度 | 修正難易度 |
 |---|---|---|:---:|:---:|
-| SEC-01 | セキュリティ | ログインにレートリミットが存在しない（README は保護ありと記載） | **High** | 低 |
-| SEC-02 | セキュリティ | `server.json` の実 URL が平文 HTTP（API キーが平文送信される）＋キー強度不足 | **High** | 低 |
-| BUG-01 | 不具合 | ダッシュボードの日付初期値が UTC 基準（朝 9 時前は「昨日」になる） | **High** | 低 |
+| SEC-01 ✅対応済 | セキュリティ | ログインにレートリミットが存在しない（README は保護ありと記載） | **High** | 低 |
+| SEC-02 ✅対応済 | セキュリティ | `server.json` の実 URL が平文 HTTP（API キーが平文送信される）＋キー強度不足 | **High** | 低 |
+| BUG-01 ✅対応済 | 不具合 | ダッシュボードの日付初期値が UTC 基準（朝 9 時前は「昨日」になる） | **High** | 低 |
 | BUG-02 | 設計不具合 | サーバー重複排除ルール（同日+同番号）が「午前/午後」複数回点呼と矛盾 | **High** | 中 |
 | SEC-03 | セキュリティ | 認証 Cookie に `Secure` 属性なし／CSRF・セキュリティヘッダ対策なし | Medium | 低 |
-| SEC-04 | セキュリティ | 既定資格情報の不整合（`admin` vs `admin1234`）と平文管理 | Medium | 低 |
+| SEC-04 ✅対応済 | セキュリティ | 既定資格情報の不整合（`admin` vs `admin1234`）と平文管理 | Medium | 低 |
 | SEC-05 | セキュリティ | API キー／パスワード比較が非定時間 | Low | 低 |
 | SEC-06 | 信頼性 | 通知キューが DB保存前に投入・インメモリ（再起動で消失）・失敗時再送なし | Medium | 中 |
 | SEC-07 | セキュリティ | CSV 出力のエスケープ不足（サーバー側）／無防備（クライアント側）→ 数式インジェクション | Low | 低 |
@@ -232,10 +232,10 @@ const today = new Date().toISOString().split('T')[0];
 ## 5. 推奨アクション（優先順）
 
 1. **今すぐ（デプロイ前必須）**
-   - BUG-01: app.js の「今日」算出をローカル日付に修正
-   - SEC-02: serverUrl を HTTPS 化 + API キー再生成
-   - SEC-01: login へ RateLimiter 適用（README との整合）
-   - SEC-04: 既定パスワード/API キーの整理と README 更新
+   - ✅ BUG-01: app.js の「今日」算出をローカル日付に修正 → **対応済み (getTodayLocal 追加)**
+   - ✅ SEC-02: serverUrl を HTTPS 化 + API キー再生成 → **対応済み (data/server.json 更新)**
+   - ✅ SEC-01: login へ RateLimiter 適用（README との整合） → **対応済み (IP 単位固定ウィンドウ 5回/分, 429 応答)**
+   - ✅ SEC-04: 既定パスワード/API キーの整理と README 更新 → **対応済み (既定値廃止・起動時検証・compose 必須化・ドキュメント更新)**
 2. **運用開始前までに**
    - BUG-02: 同日複数回点呼を許す重複判定仕様の決定と実装
    - BUG-03: エクスポート対象を全履歴に修正
@@ -255,3 +255,22 @@ const today = new Date().toISOString().split('T')[0];
 - `git ls-files` / `git log --all` / `git check-ignore` による機密情報の追跡状況・履歴調査
 - `data/students.csv` のバイナリ解析（UTF-8 正常を確認。コンソール上の文字化けはコードページ表示の問題のみ）
 - `dotnet build Tenko.sln`（成功、エラー 0 / 警告 6 件はすべて意図的な埋め込み通知）および `dotnet test`（13/13 合格）で検証
+
+---
+
+## 7. 修正記録 (2026-08-21)
+
+「推奨アクション 1」の 4 項目を実装・検証済み。
+
+| 項目 | 修正内容 | 検証結果 |
+|---|---|---|
+| BUG-01 | `app.js` に `getTodayLocal()` を追加し、UTC 日付 (`toISOString`) の2箇所を置換 | コードレビューで確認 |
+| SEC-02 | `data/server.json` を `https://datu.f5.si` + ランダム 256bit API キーへ更新 | ファイル確認 |
+| SEC-01 | `Program.cs` に `AddRateLimiter`（IP 単位固定ウィンドウ 5回/分）+ `AuthController.Login` へ `[EnableRateLimiting("auth")]`。Caddy 経由の実 IP 取得のため `UseForwardedHeaders` も追加。429 時は JSON メッセージを返却 | 実機テスト: 誤パスワード5回 → HTTP 401、6回目 → **HTTP 429** |
+| SEC-04 | `TenkoServerOptions` の既定値を空文字列化、`appsettings.json` の平文資格情報を削除、`docker-compose.yml` を `${VAR:?}` 必須構文化、README / tenkoserver-guide.md の旧パスワード記載を修正（漏洩済み値のローテーション注意書きも追記）。未設定時は起動時に `InvalidOperationException` で即座に失敗 | 実機テスト: 未設定起動 → 明確なエラーメッセージで異常終了することを確認 |
+
+**デプロイ時の必須作業（運用側）**:
+1. サーバー側で `TENKO_API_KEY=oAYc0dCfdfXO9aEOLO1txvZciZV8T7no2SQolS2JMZA`（または再生成した値）と新しい `TENKO_ADMIN_PASSWORD` を設定して再デプロイする。
+2. `datu.f5.si` の DNS がサーバーを指していること・80/443 が開放されていることを確認し、Caddy による HTTPS 化を有効化する。
+3. クライアント端末は API キーを埋め込むため**再ビルド・再配布が必要**。
+4. 以前のキー・パスワード（`26KunugidaSaiHensyuu`, ドキュメント記載の旧値）は漏洩済みとみなし使用しない。

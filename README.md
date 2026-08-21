@@ -208,10 +208,14 @@ dotnet run --project src/ScanViewer
 
 #### ローカル / 直接実行
 ```powershell
+# 管理者パスワードと API キーを環境変数で設定してから起動する（既定値は存在しない）
+$env:TenkoServer__AdminPassword = "your-secure-admin-password"
+$env:TenkoServer__ApiKey = "your-secure-api-key"
 dotnet run --project src/TenkoServer
 ```
-- 管理画面: `http://localhost:5000` (初期パスワード: `admin`)
-- ログイン後、リアルタイムダッシュボードが表示されます。
+- 管理画面: `http://localhost:5000`（上記で設定した管理者パスワードでログイン）
+- 未設定のまま起動した場合は、誤った既定値での運用を防ぐため起動時にエラーになります。
+- ログインには IP 単位のレートリミット（1分あたり5回）が適用されます。
 
 #### Linux / Docker での本番デプロイ (HTTPS 自動対応)
 ```bash

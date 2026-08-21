@@ -14,6 +14,11 @@ data/server.json
 scans/
 tools/data/
 
+## [Runtime DB]
+*.db
+*.db-shm
+*.db-wal
+
 ## [User Specific]
 .vs/
 .idea/

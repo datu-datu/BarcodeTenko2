@@ -101,13 +101,13 @@ TenkoServer を実行する前に、学生マスタと復号用パスフレー�
 
 2. **環境変数の指定とコンテナ起動**:
    ```bash
-   # 本番環境での起動例
+   # 本番環境での起動例（TENKO_API_KEY / TENKO_ADMIN_PASSWORD は必須。未指定時は起動に失敗します）
    TENKO_API_KEY="your-secure-api-key" \
    TENKO_ADMIN_PASSWORD="your-secure-admin-password" \
    SERVER_DOMAIN="tenko.example.com" \
    docker compose up -d --build
    ```
-   ※ ローカルテストの場合は単に `docker compose up -d --build` で起動可能です（`localhost` でアクセス可能）。
+   ※ ローカルテストの場合も `TENKO_API_KEY` と `TENKO_ADMIN_PASSWORD` の指定が必要です（ドメインは `localhost` 既定）。
 
 3. **ステータス確認 & ログ表示**:
    ```bash
@@ -155,7 +155,9 @@ Docker Compose を使わず、TenkoServer 単体を Docker コンテナとして
 .NET 8 SDK がインストールされている環境で、Docker を使わずに直接起動する場合の手順です。
 
 ```bash
-# リポジトリルートから直接起動
+# リポジトリルートから直接起動（AdminPassword / ApiKey は必須）
+TenkoServer__AdminPassword="your-secure-admin-password" \
+TenkoServer__ApiKey="your-secure-api-key" \
 dotnet run --project src/TenkoServer
 ```
 
@@ -179,11 +181,14 @@ dotnet TenkoServer.dll
 | 環境変数名 | デフォルト値 | 説明 |
 |---|---|---|
 | `SERVER_DOMAIN` | `localhost` | 公開ドメイン名（Caddy が自動で HTTPS 証明書を取得） |
-| `TENKO_API_KEY` | `26tokyokosenkunugidasainotenkodayo` | 端末（クライアント）認証用 API キー（ヘッダー: `X-API-Key`） |
-| `TENKO_ADMIN_PASSWORD` | `IhsRukEm1604213` | Web 管理ダッシュボードのログインパスワード |
+| `TENKO_API_KEY` | **(必須・既定値なし)** | 端末（クライアント）認証用 API キー（ヘッダー: `X-API-Key`）。ランダムな 256bit 相合の文字列を推奨 |
+| `TENKO_ADMIN_PASSWORD` | **(必須・既定値なし)** | Web 管理ダッシュボードのログインパスワード。推測困難な文字列を設定すること |
 | `TENKO_STUDENTS_PASSPHRASE` | *(空)* | 学生マスタ復号用パスフレーズ（`data/students.passphrase` または環境変数で設定） |
 | `TENKO_EMAIL_DOMAIN` | `tokyo.kosen-ac.jp` | 点呼完了通知メールの送信先ドメイン（`s{学籍番号}@{ドメイン}`） |
 | `TENKO_POWER_AUTOMATE_WEBHOOK_URL` | *(空)* | Power Automate の HTTP 要求受信トリガー URL |
+
+> [!CAUTION]
+> 以前のドキュメントに記載されていた具体的なキー・パスワードの値は漏洩済みとみなし、必ず新しい値へローテーションしてください。
 
 ---
 
