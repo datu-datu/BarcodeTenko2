@@ -84,4 +84,44 @@ namespace TenkoServer.Models.DTOs
         public DateTime ClosedAt { get; set; }
         public int ScanCount { get; set; }
     }
+
+    /// <summary>点呼データ受付設定</summary>
+    public class ScanAcceptanceDto
+    {
+        public bool IsAcceptingScans { get; set; }
+    }
+
+    /// <summary>点呼データ受付設定の更新リクエスト</summary>
+    public class UpdateScanAcceptanceRequestDto
+    {
+        public bool IsAcceptingScans { get; set; }
+    }
+
+    /// <summary>
+    /// 履歴 (アクティブスキャン) 削除リクエスト。
+    /// ScanIds 指定時は該当レコードのみ、未指定時に Date 指定でその日の全件、
+    /// AllTime = true で全期間を削除する。
+    /// </summary>
+    public class DeleteHistoryRequestDto
+    {
+        public List<string>? ScanIds { get; set; }
+        public string? Date { get; set; }
+        public bool AllTime { get; set; }
+    }
+
+    /// <summary>削除系操作の共通レスポンス</summary>
+    public class DeleteResponseDto
+    {
+        public bool Success { get; set; } = true;
+        public int DeletedCount { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
+    /// <summary>アーカイブセッション復元レスポンス</summary>
+    public class RestoreSessionResponseDto
+    {
+        public bool Success { get; set; } = true;
+        public int RestoredCount { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
 }

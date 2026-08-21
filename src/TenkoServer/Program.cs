@@ -55,6 +55,7 @@ builder.Services.AddDbContext<TenkoDbContext>(options =>
 builder.Services.AddSingleton<IStudentMasterService, StudentMasterService>();
 builder.Services.AddSingleton<INotificationQueue, NotificationQueue>();
 builder.Services.AddSingleton<INotificationStateService, NotificationStateService>();
+builder.Services.AddSingleton<IScanAcceptanceService, ScanAcceptanceService>();
 builder.Services.AddHostedService<NotificationBackgroundService>();
 builder.Services.AddHttpClient("PowerAutomateClient");
 

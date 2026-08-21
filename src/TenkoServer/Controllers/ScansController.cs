@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -19,17 +20,20 @@ namespace TenkoServer.Controllers
         private readonly TenkoDbContext _db;
         private readonly INotificationQueue _notificationQueue;
         private readonly INotificationStateService _notificationState;
+        private readonly IScanAcceptanceService _scanAcceptance;
         private readonly ILogger<ScansController> _logger;
 
         public ScansController(
             TenkoDbContext db,
             INotificationQueue notificationQueue,
             INotificationStateService notificationState,
+            IScanAcceptanceService scanAcceptance,
             ILogger<ScansController> logger)
         {
             _db = db;
             _notificationQueue = notificationQueue;
             _notificationState = notificationState;
+            _scanAcceptance = scanAcceptance;
             _logger = logger;
         }
 
@@ -42,6 +46,24 @@ namespace TenkoServer.Controllers
                 {
                     Success = false,
                     Message = "No records provided."
+                });
+            }
+
+            // 管理パネルで受付停止中の場合は 503 で拒否する。
+            // クライアントは非成功ステータス時にデータをローカル保持して再送するため、
+            // テスト中の誤登録を防ぎつつデータ欠落も起こらない。
+            if (!_scanAcceptance.IsAcceptingScans)
+            {
+                _logger.LogWarning("Rejected {RecordCount} scan record(s) from client '{ClientId}': scan acceptance is disabled.",
+                    request.Records.Count, request.ClientId);
+
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ScanBatchResponseDto
+                {
+                    Success = false,
+                    AcceptedCount = 0,
+                    DuplicateCount = 0,
+                    NotificationQueuedCount = 0,
+                    Message = "サーバーは現在点呼データを受け付けていません（管理パネルで受付停止中）。"
                 });
             }
 

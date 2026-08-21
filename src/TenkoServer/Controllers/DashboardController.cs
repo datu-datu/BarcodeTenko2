@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using TenkoServer.Data;
 using TenkoServer.Data.Models;
 using TenkoServer.Models.DTOs;
@@ -23,17 +24,23 @@ namespace TenkoServer.Controllers
         private readonly IStudentMasterService _studentMaster;
         private readonly INotificationStateService _notificationState;
         private readonly INotificationQueue _notificationQueue;
+        private readonly IScanAcceptanceService _scanAcceptance;
+        private readonly ILogger<DashboardController> _logger;
 
         public DashboardController(
             TenkoDbContext db,
             IStudentMasterService studentMaster,
             INotificationStateService notificationState,
-            INotificationQueue notificationQueue)
+            INotificationQueue notificationQueue,
+            IScanAcceptanceService scanAcceptance,
+            ILogger<DashboardController> logger)
         {
             _db = db;
             _studentMaster = studentMaster;
             _notificationState = notificationState;
             _notificationQueue = notificationQueue;
+            _scanAcceptance = scanAcceptance;
+            _logger = logger;
         }
 
         [HttpGet("summary")]
@@ -230,6 +237,166 @@ namespace TenkoServer.Controllers
             return Ok(sessions);
         }
 
+        /// <summary>
+        /// 締め済みセッション (アーカイブ) を削除する。
+        /// 削除したデータは復元できないため、管理パネルでは確認ダイアログを挟む。
+        /// </summary>
+        [HttpDelete("sessions/{sessionId}")]
+        public async Task<ActionResult<DeleteResponseDto>> DeleteSession(string sessionId)
+        {
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                return BadRequest(new DeleteResponseDto
+                {
+                    Success = false,
+                    Message = "セッションIDが指定されていません。"
+                });
+            }
+
+            var targets = await _db.ArchivedScans
+                .Where(a => a.SessionId == sessionId)
+                .ToListAsync();
+
+            if (targets.Count == 0)
+            {
+                return NotFound(new DeleteResponseDto
+                {
+                    Success = false,
+                    Message = "指定されたセッションが見つかりません。"
+                });
+            }
+
+            string label = targets[0].SessionLabel ?? "名称未設定";
+
+            _db.ArchivedScans.RemoveRange(targets);
+            await _db.SaveChangesAsync();
+            _logger.LogWarning("Deleted archived session '{SessionId}' ({Label}, {Count} records) from admin panel.",
+                sessionId, label, targets.Count);
+
+            return Ok(new DeleteResponseDto
+            {
+                Success = true,
+                DeletedCount = targets.Count,
+                Message = $"セッション「{label}」({targets.Count} 件) を削除しました。"
+            });
+        }
+
+        /// <summary>
+        /// 全ての締め済みセッション (アーカイブ) を削除する。
+        /// </summary>
+        [HttpPost("sessions/delete-all")]
+        public async Task<ActionResult<DeleteResponseDto>> DeleteAllSessions()
+        {
+            var targets = await _db.ArchivedScans.ToListAsync();
+
+            if (targets.Count > 0)
+            {
+                _db.ArchivedScans.RemoveRange(targets);
+                await _db.SaveChangesAsync();
+                _logger.LogWarning("Deleted ALL archived sessions ({Count} records) from admin panel.", targets.Count);
+            }
+
+            return Ok(new DeleteResponseDto
+            {
+                Success = true,
+                DeletedCount = targets.Count,
+                Message = targets.Count == 0
+                    ? "削除対象のアーカイブはありません。"
+                    : $"全アーカイブ ({targets.Count} 件) を削除しました。"
+            });
+        }
+
+        /// <summary>
+        /// 締め済みセッションをアクティブな Scans へ戻す (取り消し)。
+        /// 同じ Id のアクティブレコードが既に存在する場合はスキップする。
+        /// </summary>
+        [HttpPost("sessions/{sessionId}/restore")]
+        public async Task<ActionResult<RestoreSessionResponseDto>> RestoreSession(string sessionId)
+        {
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                return BadRequest(new RestoreSessionResponseDto
+                {
+                    Success = false,
+                    Message = "セッションIDが指定されていません。"
+                });
+            }
+
+            var archived = await _db.ArchivedScans
+                .Where(a => a.SessionId == sessionId)
+                .OrderBy(a => a.Timestamp)
+                .ToListAsync();
+
+            if (archived.Count == 0)
+            {
+                return NotFound(new RestoreSessionResponseDto
+                {
+                    Success = false,
+                    Message = "指定されたセッションが見つかりません。"
+                });
+            }
+
+            string label = archived[0].SessionLabel ?? "名称未設定";
+            var existingIds = (await _db.Scans.Select(s => s.Id).ToListAsync()).ToHashSet();
+
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+            try
+            {
+                int restoredCount = 0;
+                foreach (var a in archived)
+                {
+                    if (existingIds.Contains(a.Id))
+                    {
+                        continue;
+                    }
+
+                    _db.Scans.Add(new ScanEntity
+                    {
+                        Id = a.Id,
+                        Timestamp = a.Timestamp,
+                        Barcode = a.Barcode,
+                        Last5 = a.Last5,
+                        StudentName = a.StudentName,
+                        StudentCode = a.StudentCode,
+                        Location = a.Location,
+                        ClientId = a.ClientId,
+                        ReceivedAt = a.ReceivedAt,
+                        ScanDate = a.ScanDate
+                    });
+                    restoredCount++;
+                }
+
+                if (restoredCount > 0)
+                {
+                    // 復元が完了してからアーカイブ側を削除する (冪等性のため失敗時はロールバック)
+                    _db.ArchivedScans.RemoveRange(archived);
+                    await _db.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+
+                int skipped = archived.Count - restoredCount;
+                string message = skipped > 0
+                    ? $"セッション「{label}」から {restoredCount} 件を復元しました (重複のため {skipped} 件はスキップ)。"
+                    : $"セッション「{label}」から {restoredCount} 件を復元しました。";
+
+                _logger.LogInformation("Restored archived session '{SessionId}' ({Label}): {RestoredCount} record(s).",
+                    sessionId, label, restoredCount);
+
+                return Ok(new RestoreSessionResponseDto
+                {
+                    Success = true,
+                    RestoredCount = restoredCount,
+                    Message = message
+                });
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
         [HttpGet("export/csv")]
         public async Task<IActionResult> ExportCsv([FromQuery] string? date, [FromQuery] string? location, [FromQuery] string? session = null)
         {
@@ -353,6 +520,84 @@ namespace TenkoServer.Controllers
             {
                 IsAutoSend = _notificationState.IsAutoSendEnabled,
                 IsWebhookConfigured = _notificationState.IsWebhookConfigured
+            });
+        }
+
+        /// <summary>
+        /// クライアントからの点呼データ受付可否を取得する (テスト時の受付停止用)。
+        /// </summary>
+        [HttpGet("scan-acceptance")]
+        public ActionResult<ScanAcceptanceDto> GetScanAcceptance()
+        {
+            return Ok(new ScanAcceptanceDto
+            {
+                IsAcceptingScans = _scanAcceptance.IsAcceptingScans
+            });
+        }
+
+        [HttpPost("scan-acceptance")]
+        public ActionResult<ScanAcceptanceDto> UpdateScanAcceptance([FromBody] UpdateScanAcceptanceRequestDto request)
+        {
+            if (request != null)
+            {
+                _scanAcceptance.IsAcceptingScans = request.IsAcceptingScans;
+                _logger.LogInformation("Scan acceptance changed to {IsAcceptingScans} via admin panel.", _scanAcceptance.IsAcceptingScans);
+            }
+
+            return Ok(new ScanAcceptanceDto
+            {
+                IsAcceptingScans = _scanAcceptance.IsAcceptingScans
+            });
+        }
+
+        /// <summary>
+        /// アクティブセッションの点呼履歴を管理パネルから削除する。
+        /// - ScanIds 指定時: 該当レコードのみ削除
+        /// - Date 指定時: その日の全レコードを削除
+        /// - AllTime = true: 全期間のレコードを削除
+        /// アーカイブ済みデータは対象外 (sessions 系 API で管理)。
+        /// </summary>
+        [HttpPost("scans/delete")]
+        public async Task<ActionResult<DeleteResponseDto>> DeleteHistory([FromBody] DeleteHistoryRequestDto? request)
+        {
+            if (request == null ||
+                ((request.ScanIds == null || request.ScanIds.Count == 0) &&
+                 string.IsNullOrWhiteSpace(request.Date) && !request.AllTime))
+            {
+                return BadRequest(new DeleteResponseDto
+                {
+                    Success = false,
+                    Message = "削除条件が指定されていません。"
+                });
+            }
+
+            IQueryable<ScanEntity> query = _db.Scans;
+
+            if (request.ScanIds != null && request.ScanIds.Count > 0)
+            {
+                var ids = request.ScanIds.ToHashSet();
+                query = query.Where(s => ids.Contains(s.Id));
+            }
+            else if (!string.IsNullOrWhiteSpace(request.Date))
+            {
+                string targetDate = request.Date.Trim();
+                query = query.Where(s => s.ScanDate == targetDate);
+            }
+
+            var targets = await query.ToListAsync();
+
+            if (targets.Count > 0)
+            {
+                _db.Scans.RemoveRange(targets);
+                await _db.SaveChangesAsync();
+                _logger.LogWarning("Deleted {DeletedCount} active scan record(s) from admin panel.", targets.Count);
+            }
+
+            return Ok(new DeleteResponseDto
+            {
+                Success = true,
+                DeletedCount = targets.Count,
+                Message = $"{targets.Count} 件の点呼履歴を削除しました。"
             });
         }
 

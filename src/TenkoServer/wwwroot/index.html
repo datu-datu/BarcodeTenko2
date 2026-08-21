@@ -44,6 +44,10 @@
                     <span class="control-label">メール送信:</span>
                     <button id="notificationModeToggleBtn" class="btn btn-outline btn-sm">自動送信 [有効]</button>
                 </div>
+                <div class="notification-mode-group">
+                    <span class="control-label">点呼受付:</span>
+                    <button id="scanAcceptanceToggleBtn" class="btn btn-outline btn-sm">受け付け [許可]</button>
+                </div>
                 <button id="sendAllNotificationsBtn" class="btn btn-primary btn-sm">本日分を一括送信</button>
             </div>
         </section>
@@ -94,11 +98,16 @@
                     <h2 style="font-size: 16px;">スキャン履歴 (<span id="scansCountBadge">0</span>件)</h2>
                     <div style="font-size: 12px; color: var(--text-muted);">※ 現在のセッションの点呼データを表示します（最新が上）。締め済みデータは「セッション履歴」タブから</div>
                 </div>
+                <div style="display: flex; gap: 8px;">
+                    <button id="deleteSelectedScansBtn" class="btn btn-danger btn-sm" disabled>選択した行を削除</button>
+                    <button id="deleteDayScansBtn" class="btn btn-danger btn-sm">この日の履歴を全削除</button>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
+                            <th style="width: 32px;"><input type="checkbox" id="selectAllScansCheck" title="全選択"></th>
                             <th>時刻</th>
                             <th>学籍番号</th>
                             <th>出席番号</th>
@@ -109,7 +118,7 @@
                         </tr>
                     </thead>
                     <tbody id="scansTableBody">
-                        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                        <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -143,9 +152,12 @@
             <div class="card-header-flex">
                 <div>
                     <h2 style="font-size: 16px;">締め済みセッション履歴</h2>
-                    <p style="font-size: 12px; color: var(--text-muted);">「セッション締め」でアーカイブされた点呼データです。各セッション単位でダウンロードできます。</p>
+                    <p style="font-size: 12px; color: var(--text-muted);">「セッション締め」でアーカイブされた点呼データです。各セッション単位でダウンロード・復元・削除ができます。</p>
                 </div>
-                <button id="refreshSessionsBtn" class="btn btn-outline" style="font-size: 12px;">一覧更新</button>
+                <div style="display: flex; gap: 8px;">
+                    <button id="deleteAllSessionsBtn" class="btn btn-danger btn-sm">アーカイブ全削除</button>
+                    <button id="refreshSessionsBtn" class="btn btn-outline" style="font-size: 12px;">一覧更新</button>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="data-table">
@@ -155,10 +167,11 @@
                             <th>セッション名</th>
                             <th>件数</th>
                             <th>ダウンロード</th>
+                            <th>管理</th>
                         </tr>
                     </thead>
                     <tbody id="sessionsTableBody">
-                        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">読み込み中...</td></tr>
                     </tbody>
                 </table>
             </div>

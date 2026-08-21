@@ -5,6 +5,7 @@
 let currentTab = 'scansTab';
 let autoRefreshTimer = null;
 let notificationSettings = { isAutoSend: true, isWebhookConfigured: false };
+let scanAcceptance = { isAcceptingScans: true };
 
 /**
  * ローカルタイムゾーン基準の今日の日付 (yyyy-MM-dd) を取得する
@@ -44,7 +45,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 初回データ読み込み
     await Promise.all([
         refreshAllData(),
-        loadNotificationSettings()
+        loadNotificationSettings(),
+        loadScanAcceptance()
     ]);
 
     // 自動更新開始
@@ -107,6 +109,38 @@ function setupEventListeners() {
     const toggleBtn = document.getElementById('notificationModeToggleBtn');
     if (toggleBtn) {
         toggleBtn.addEventListener('click', toggleNotificationMode);
+    }
+
+    // 点呼受付トグルボタン (テスト時の受付停止用)
+    const acceptanceToggleBtn = document.getElementById('scanAcceptanceToggleBtn');
+    if (acceptanceToggleBtn) {
+        acceptanceToggleBtn.addEventListener('click', toggleScanAcceptance);
+    }
+
+    // 履歴削除ボタン
+    const deleteSelectedBtn = document.getElementById('deleteSelectedScansBtn');
+    if (deleteSelectedBtn) {
+        deleteSelectedBtn.addEventListener('click', deleteSelectedScans);
+    }
+    const deleteDayBtn = document.getElementById('deleteDayScansBtn');
+    if (deleteDayBtn) {
+        deleteDayBtn.addEventListener('click', deleteDayScans);
+    }
+
+    // 全選択チェックボックス
+    const selectAllCheck = document.getElementById('selectAllScansCheck');
+    if (selectAllCheck) {
+        selectAllCheck.addEventListener('change', () => {
+            const checked = selectAllCheck.checked;
+            document.querySelectorAll('.scan-row-check').forEach(cb => { cb.checked = checked; });
+            updateDeleteSelectedButton();
+        });
+    }
+
+    // アーカイブ全削除ボタン
+    const deleteAllSessionsBtn = document.getElementById('deleteAllSessionsBtn');
+    if (deleteAllSessionsBtn) {
+        deleteAllSessionsBtn.addEventListener('click', deleteAllSessions);
     }
 
     // 本日分一括送信ボタン
@@ -222,6 +256,212 @@ async function toggleNotificationMode() {
     }
 }
 
+/**
+ * 点呼データの受付状態を取得して UI に反映する
+ */
+async function loadScanAcceptance() {
+    try {
+        const res = await fetch('/api/v1/dashboard/scan-acceptance');
+        if (!res.ok) return;
+        scanAcceptance = await res.json();
+        updateScanAcceptanceUI();
+    } catch (err) {
+        console.error('Failed to load scan acceptance settings:', err);
+    }
+}
+
+function updateScanAcceptanceUI() {
+    const toggleBtn = document.getElementById('scanAcceptanceToggleBtn');
+    if (!toggleBtn) return;
+
+    if (scanAcceptance.isAcceptingScans) {
+        toggleBtn.innerText = '受け付け [許可]';
+        toggleBtn.className = 'btn btn-primary btn-sm';
+        toggleBtn.title = '端末からの点呼データを受理します（クリックで受付停止へ切替）';
+    } else {
+        toggleBtn.innerText = '受け付け [停止中]';
+        toggleBtn.className = 'btn btn-danger btn-sm';
+        toggleBtn.title = '端末からの点呼データを拒否します（端末側はデータを保持し再送します）（クリックで許可へ切替）';
+    }
+}
+
+async function toggleScanAcceptance() {
+    const newValue = !scanAcceptance.isAcceptingScans;
+    const action = newValue ? '再開' : '停止';
+
+    if (!newValue &&
+        !confirm('端末からの点呼データの受付を停止しますか？\n停止中にスキャンされたデータは端末側に保持され、受付再開後に自動送信されます。')) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/dashboard/scan-acceptance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isAcceptingScans: newValue })
+        });
+
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+        if (!res.ok) {
+            alert('受付設定の更新に失敗しました。');
+            return;
+        }
+
+        scanAcceptance = await res.json();
+        updateScanAcceptanceUI();
+        alert(`点呼データの受付を「${newValue ? '許可' : '停止'}」に${action}しました。`);
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+/**
+ * チェックされた行のスキャン履歴を削除する
+ */
+async function deleteSelectedScans() {
+    const ids = Array.from(document.querySelectorAll('.scan-row-check:checked'))
+        .map(cb => cb.getAttribute('data-scan-id'));
+
+    if (ids.length === 0) {
+        alert('削除する行を選択してください。');
+        return;
+    }
+
+    if (!confirm(`選択した ${ids.length} 件の点呼履歴を削除しますか？\nこの操作は取り消せません（アーカイブ済みデータには影響しません）。`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/dashboard/scans/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scanIds: ids })
+        });
+
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(data.message || '削除に失敗しました。');
+            return;
+        }
+
+        alert(data.message);
+        document.getElementById('selectAllScansCheck').checked = false;
+        await refreshAllData();
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+/**
+ * 選択中の日付のスキャン履歴を全件削除する
+ */
+async function deleteDayScans() {
+    const date = document.getElementById('dateSelect').value;
+    if (!date) return;
+
+    if (!confirm(`${date} の点呼履歴を全件削除しますか？\nこの操作は取り消せません（アーカイブ済みデータには影響しません）。`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/dashboard/scans/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: date })
+        });
+
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(data.message || '削除に失敗しました。');
+            return;
+        }
+
+        alert(data.message);
+        document.getElementById('selectAllScansCheck').checked = false;
+        await refreshAllData();
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+/**
+ * 締め済みセッション (アーカイブ) を削除する
+ */
+async function deleteSession(sessionId, label, count) {
+    if (!confirm(`セッション「${label}」（${count} 件）を削除しますか？\n削除したアーカイブデータは復元できません。`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/v1/dashboard/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(data.message || 'セッションの削除に失敗しました。');
+            return;
+        }
+
+        alert(data.message);
+        loadSessions();
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+/**
+ * 全ての締め済みセッション (アーカイブ) を削除する
+ */
+async function deleteAllSessions() {
+    if (!confirm('全ての締め済みセッション（アーカイブ）を削除しますか？\n削除したアーカイブデータは復元できません。')) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/dashboard/sessions/delete-all', { method: 'POST' });
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(data.message || 'アーカイブの削除に失敗しました。');
+            return;
+        }
+
+        alert(data.message);
+        loadSessions();
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+/**
+ * 締め済みセッションを現在のセッションへ復元する (締めの取り消し)
+ */
+async function restoreSession(sessionId, label) {
+    if (!confirm(`セッション「${label}」を現在のセッションへ復元しますか？\nスキャン履歴・未点呼リストが締め前の状態に戻ります。`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/v1/dashboard/sessions/${encodeURIComponent(sessionId)}/restore`, { method: 'POST' });
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(data.message || 'セッションの復元に失敗しました。');
+            return;
+        }
+
+        alert(data.message);
+        await refreshAllData();
+        loadSessions();
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
 async function sendAllNotifications() {
     const date = document.getElementById('dateSelect').value || new Date().toISOString().split('T')[0];
     if (!confirm(`対象日（${date}）の未送信の点呼者に対して、メールを一括送信しますか？`)) {
@@ -316,23 +556,29 @@ async function loadSessions() {
     const tbody = document.getElementById('sessionsTableBody');
 
     if (sessions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">締め済みセッションはありません</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">締め済みセッションはありません</td></tr>';
         return;
     }
 
     let html = '';
     for (const s of sessions) {
         const closedAtStr = s.closedAt ? new Date(s.closedAt).toLocaleString('ja-JP') : '-';
+        const sessionLabel = s.label || '(名称未設定)';
         const downloadCell = `
             <button class="btn btn-xs btn-outline session-dl-btn" data-session-id="${escapeHtml(s.sessionId)}" data-format="csv">CSV</button>
             <button class="btn btn-xs btn-outline session-dl-btn" data-session-id="${escapeHtml(s.sessionId)}" data-format="bin">BIN</button>
         `;
+        const manageCell = `
+            <button class="btn btn-xs btn-outline session-restore-btn" data-session-id="${escapeHtml(s.sessionId)}" data-label="${escapeHtml(sessionLabel)}">復元</button>
+            <button class="btn btn-xs btn-danger session-delete-btn" data-session-id="${escapeHtml(s.sessionId)}" data-label="${escapeHtml(sessionLabel)}" data-count="${escapeHtml(String(s.scanCount))}">削除</button>
+        `;
         html += `
             <tr>
                 <td class="font-mono">${escapeHtml(closedAtStr)}</td>
-                <td><span class="badge badge-info">${escapeHtml(s.label || '(名称未設定)')}</span></td>
+                <td><span class="badge badge-info">${escapeHtml(sessionLabel)}</span></td>
                 <td class="font-mono">${escapeHtml(String(s.scanCount))} 件</td>
                 <td>${downloadCell}</td>
+                <td>${manageCell}</td>
             </tr>
         `;
     }
@@ -345,6 +591,23 @@ async function loadSessions() {
             if (sessionId && format) {
                 window.location.href = `/api/v1/dashboard/export/${format}?session=${encodeURIComponent(sessionId)}`;
             }
+        });
+    });
+
+    tbody.querySelectorAll('.session-restore-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const sessionId = e.currentTarget.getAttribute('data-session-id');
+            const label = e.currentTarget.getAttribute('data-label');
+            if (sessionId) restoreSession(sessionId, label);
+        });
+    });
+
+    tbody.querySelectorAll('.session-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const sessionId = e.currentTarget.getAttribute('data-session-id');
+            const label = e.currentTarget.getAttribute('data-label');
+            const count = e.currentTarget.getAttribute('data-count');
+            if (sessionId) deleteSession(sessionId, label, count);
         });
     });
 }
@@ -412,7 +675,8 @@ async function loadScans() {
     document.getElementById('scansCountBadge').innerText = list.length;
 
     if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">点呼データはありません</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">点呼データはありません</td></tr>';
+        updateDeleteSelectedButton();
         return;
     }
 
@@ -425,6 +689,7 @@ async function loadScans() {
 
         html += `
             <tr>
+                <td><input type="checkbox" class="scan-row-check" data-scan-id="${escapeHtml(r.id)}"></td>
                 <td class="font-mono">${escapeHtml(timeStr)}</td>
                 <td class="font-mono">${escapeHtml(String(r.last5).padStart(5, '0'))}</td>
                 <td><span class="badge badge-info">${escapeHtml(r.studentCode || '-')}</span></td>
@@ -446,6 +711,20 @@ async function loadScans() {
             }
         });
     });
+
+    // 行チェックボックスのイベントバインド
+    tbody.querySelectorAll('.scan-row-check').forEach(cb => {
+        cb.addEventListener('change', updateDeleteSelectedButton);
+    });
+    updateDeleteSelectedButton();
+}
+
+function updateDeleteSelectedButton() {
+    const btn = document.getElementById('deleteSelectedScansBtn');
+    if (!btn) return;
+    const checkedCount = document.querySelectorAll('.scan-row-check:checked').length;
+    btn.disabled = checkedCount === 0;
+    btn.innerText = checkedCount > 0 ? `選択した行を削除 (${checkedCount})` : '選択した行を削除';
 }
 
 async function loadUnverified() {

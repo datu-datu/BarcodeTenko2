@@ -61,7 +61,7 @@ namespace Tenko.Tests
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
 
             var batch = new ScanBatchRequestDto
             {
@@ -133,7 +133,7 @@ namespace Tenko.Tests
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
 
             ScanBatchRequestDto CreateBatch(string id, string location) => new ScanBatchRequestDto
             {
@@ -180,7 +180,7 @@ namespace Tenko.Tests
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
 
             DateTime ts = new DateTime(2026, 8, 22, 9, 0, 0);
             _db.Scans.Add(new ScanEntity
@@ -249,7 +249,7 @@ namespace Tenko.Tests
 
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
             var queue = new NotificationQueue();
-            var controller = new DashboardController(_db, studentMaster, notifState, queue);
+            var controller = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
 
             // サマリー取得
             var summaryResult = await controller.GetSummary("2026-08-21");
@@ -305,8 +305,8 @@ namespace Tenko.Tests
 
                 var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
                 var queue = new NotificationQueue();
-                var scansController = new ScansController(_db, queue, notifState, NullLogger<ScansController>.Instance);
-                var dashboard = new DashboardController(_db, studentMaster, notifState, queue);
+                var scansController = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
+                var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
 
                 string today = DateTime.Today.ToString("yyyy-MM-dd");
 
@@ -421,6 +421,176 @@ namespace Tenko.Tests
 
             File.WriteAllLines(Path.Combine(dir, "data", "students.txt"), new[] { "21021", "23213" });
             return dir;
+        }
+
+        [Fact]
+        public async Task ScansController_PostScans_Returns503_WhenAcceptanceDisabled()
+        {
+            var queue = new NotificationQueue();
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+            var acceptance = new ScanAcceptanceService { IsAcceptingScans = false };
+
+            var controller = new ScansController(_db, queue, notifState, acceptance, NullLogger<ScansController>.Instance);
+
+            var batch = new ScanBatchRequestDto
+            {
+                ClientId = "client-test",
+                Records = new List<ScanItemDto>
+                {
+                    new ScanItemDto
+                    {
+                        Id = "rejected-1",
+                        Barcode = "21021",
+                        Last5 = 21021,
+                        Location = "2棟2階",
+                        Timestamp = DateTime.Now
+                    }
+                }
+            };
+
+            var actionResult = await controller.PostScans(batch);
+
+            // 受付停止中は 503 で拒否され、クライアント側でデータが保持・再送される
+            var statusCodeResult = Assert.IsType<ObjectResult>(actionResult.Result);
+            Assert.Equal(StatusCodes.Status503ServiceUnavailable, statusCodeResult.StatusCode);
+            var response = Assert.IsType<ScanBatchResponseDto>(statusCodeResult.Value);
+            Assert.False(response.Success);
+            Assert.Equal(0, response.AcceptedCount);
+
+            // DB には何も保存されない
+            Assert.Equal(0, await _db.Scans.CountAsync());
+
+            // 受付を再開すると受理される
+            acceptance.IsAcceptingScans = true;
+            var okResult = Assert.IsType<OkObjectResult>((await controller.PostScans(batch)).Result);
+            var okResponse = Assert.IsType<ScanBatchResponseDto>(okResult.Value);
+            Assert.True(okResponse.Success);
+            Assert.Equal(1, okResponse.AcceptedCount);
+            Assert.Equal(1, await _db.Scans.CountAsync());
+        }
+
+        [Fact]
+        public async Task DashboardController_DeleteHistory_RemovesActiveScansOnly()
+        {
+            var studentMaster = new StudentMasterService(
+                Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+            var queue = new NotificationQueue();
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+
+            _db.Scans.AddRange(
+                new ScanEntity
+                {
+                    Id = "del-1", Timestamp = new DateTime(2026, 8, 21, 9, 0, 0), Barcode = "21021", Last5 = 21021,
+                    StudentName = "", StudentCode = "", Location = "2棟2階", ScanDate = "2026-08-21"
+                },
+                new ScanEntity
+                {
+                    Id = "del-2", Timestamp = new DateTime(2026, 8, 22, 9, 0, 0), Barcode = "23213", Last5 = 23213,
+                    StudentName = "", StudentCode = "", Location = "2棟2階", ScanDate = "2026-08-22"
+                });
+            _db.ArchivedScans.Add(new ArchivedScanEntity
+            {
+                Id = "arch-1", Timestamp = new DateTime(2026, 8, 20, 9, 0, 0), Barcode = "11111", Last5 = 11111,
+                StudentName = "", StudentCode = "", Location = "2棟2階", ReceivedAt = DateTime.UtcNow,
+                ScanDate = "2026-08-20", SessionId = "session-x", ClosedAt = DateTime.UtcNow
+            });
+            await _db.SaveChangesAsync();
+
+            // 条件未指定は BadRequest
+            var badResult = await dashboard.DeleteHistory(new DeleteHistoryRequestDto());
+            Assert.IsType<BadRequestObjectResult>(badResult.Result);
+
+            // ID 指定削除
+            var byIds = await dashboard.DeleteHistory(new DeleteHistoryRequestDto { ScanIds = new List<string> { "del-1" } });
+            var byIdsResp = Assert.IsType<DeleteResponseDto>(Assert.IsType<OkObjectResult>(byIds.Result).Value);
+            Assert.Equal(1, byIdsResp.DeletedCount);
+            Assert.Null(await _db.Scans.FindAsync("del-1"));
+            Assert.NotNull(await _db.Scans.FindAsync("del-2"));
+
+            // 日付指定削除
+            var byDate = await dashboard.DeleteHistory(new DeleteHistoryRequestDto { Date = "2026-08-22" });
+            var byDateResp = Assert.IsType<DeleteResponseDto>(Assert.IsType<OkObjectResult>(byDate.Result).Value);
+            Assert.Equal(1, byDateResp.DeletedCount);
+            Assert.Equal(0, await _db.Scans.CountAsync());
+
+            // アーカイブは影響を受けない
+            Assert.Equal(1, await _db.ArchivedScans.CountAsync());
+        }
+
+        [Fact]
+        public async Task DashboardController_SessionManagement_DeletesAndRestoresArchives()
+        {
+            var studentMaster = new StudentMasterService(
+                Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+            var queue = new NotificationQueue();
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+
+            _db.ArchivedScans.Add(new ArchivedScanEntity
+            {
+                Id = "restore-1", Timestamp = new DateTime(2026, 8, 21, 9, 0, 0), Barcode = "21021", Last5 = 21021,
+                StudentName = "", StudentCode = "", Location = "2棟2階", ReceivedAt = DateTime.UtcNow,
+                ScanDate = "2026-08-21", SessionId = "session-r", SessionLabel = "午前", ClosedAt = DateTime.UtcNow
+            });
+            await _db.SaveChangesAsync();
+
+            // 存在しないセッションは 404
+            var missing = await dashboard.RestoreSession("no-such-session");
+            Assert.IsType<NotFoundObjectResult>(missing.Result);
+
+            // 復元: アーカイブ -> アクティブ
+            var restore = await dashboard.RestoreSession("session-r");
+            var restoreResp = Assert.IsType<RestoreSessionResponseDto>(Assert.IsType<OkObjectResult>(restore.Result).Value);
+            Assert.True(restoreResp.Success);
+            Assert.Equal(1, restoreResp.RestoredCount);
+
+            Assert.Equal(0, await _db.ArchivedScans.CountAsync());
+            var restored = await _db.Scans.SingleAsync(s => s.Id == "restore-1");
+            Assert.Equal(21021, restored.Last5);
+            Assert.Equal("2026-08-21", restored.ScanDate);
+
+            // 再度締めてから削除
+            var close = await dashboard.CloseSession(new CloseSessionRequestDto { Label = "午後" });
+            var closeResp = Assert.IsType<CloseSessionResponseDto>(Assert.IsType<OkObjectResult>(close.Result).Value);
+            Assert.Equal(1, await _db.ArchivedScans.CountAsync());
+
+            var delete = await dashboard.DeleteSession(closeResp.SessionId!);
+            var deleteResp = Assert.IsType<DeleteResponseDto>(Assert.IsType<OkObjectResult>(delete.Result).Value);
+            Assert.Equal(1, deleteResp.DeletedCount);
+            Assert.Equal(0, await _db.ArchivedScans.CountAsync());
+            Assert.Equal(0, await _db.Scans.CountAsync());
+
+            // 全削除 (空でも成功)
+            var deleteAll = await dashboard.DeleteAllSessions();
+            var deleteAllResp = Assert.IsType<DeleteResponseDto>(Assert.IsType<OkObjectResult>(deleteAll.Result).Value);
+            Assert.True(deleteAllResp.Success);
+        }
+
+        [Fact]
+        public void DashboardController_ScanAcceptance_TogglesState()
+        {
+            var studentMaster = new StudentMasterService(
+                Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+            var queue = new NotificationQueue();
+            var acceptance = new ScanAcceptanceService();
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, acceptance, NullLogger<DashboardController>.Instance);
+
+            // 既定値は許可
+            var initial = Assert.IsType<ScanAcceptanceDto>(Assert.IsType<OkObjectResult>(dashboard.GetScanAcceptance().Result).Value);
+            Assert.True(initial.IsAcceptingScans);
+
+            // 停止へ切替
+            var updated = Assert.IsType<ScanAcceptanceDto>(
+                Assert.IsType<OkObjectResult>(
+                    dashboard.UpdateScanAcceptance(new UpdateScanAcceptanceRequestDto { IsAcceptingScans = false }).Result).Value);
+            Assert.False(updated.IsAcceptingScans);
+            Assert.False(acceptance.IsAcceptingScans);
+
+            // 再開
+            dashboard.UpdateScanAcceptance(new UpdateScanAcceptanceRequestDto { IsAcceptingScans = true });
+            Assert.True(acceptance.IsAcceptingScans);
         }
 
         [Fact]
