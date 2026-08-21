@@ -1,16 +1,19 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using TenkoServer.Controllers;
@@ -410,6 +413,101 @@ namespace Tenko.Tests
         }
 
         [Fact]
+        public async Task NotificationBackgroundService_BatchesAndSendsMinimalPayload()
+        {
+            var capturedBodies = new ConcurrentQueue<string>();
+            var captureHandler = new CapturingWebhookHandler(capturedBodies);
+
+            var services = new ServiceCollection();
+            services.AddSingleton<TenkoDbContext>(_db);
+            services.AddHttpClient("PowerAutomateClient")
+                .ConfigurePrimaryHttpMessageHandler(() => captureHandler);
+            using var serviceProvider = services.BuildServiceProvider();
+
+            var options = new TenkoServerOptions
+            {
+                ApiKey = "test-api-key",
+                AdminPassword = "test-admin-password",
+                PowerAutomateWebhookUrl = "https://example.com/webhook",
+                EnableNotifications = true,
+                MaxNotificationsPerBatch = 20,
+                NotificationBatchWindowSeconds = 1
+            };
+
+            var queue = new NotificationQueue();
+            using var service = new NotificationBackgroundService(
+                queue,
+                serviceProvider,
+                serviceProvider.GetRequiredService<IHttpClientFactory>(),
+                new MockOptionsMonitor<TenkoServerOptions>(options),
+                NullLogger<NotificationBackgroundService>.Instance);
+
+            await service.StartAsync(CancellationToken.None);
+
+            for (int i = 0; i < 25; i++)
+            {
+                await queue.QueueNotificationAsync(new NotificationTask
+                {
+                    ScanId = $"scan-{i}",
+                    StudentNumber = (ushort)(20000 + i),
+                    StudentName = $"氏名{i}",
+                    StudentCode = $"code-{i}",
+                    Location = "2棟2階",
+                    ClientId = $"terminal-{i}",
+                    Timestamp = new DateTime(2026, 8, 21, 10, 0, 0).AddMinutes(i),
+                    ToEmail = $"s{20000 + i:D5}@tokyo.kosen-ac.jp"
+                });
+            }
+
+            // 1バッチ目は最大20件で即送信、2バッチ目は窓期限（1秒）経過で送信される
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (capturedBodies.Count < 2 && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(100);
+            }
+
+            await service.StopAsync(CancellationToken.None);
+
+            Assert.Equal(2, capturedBodies.Count);
+
+            string firstBody = capturedBodies.ToArray()[0];
+            using var doc = JsonDocument.Parse(firstBody);
+            Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+
+            var items = doc.RootElement.EnumerateArray().ToList();
+            Assert.Equal(20, items.Count);
+            foreach (var item in items)
+            {
+                var propertyNames = item.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+                Assert.Equal(new[] { "location", "studentNumber", "timestamp" }, propertyNames);
+            }
+            Assert.Equal("2棟2階", items[0].GetProperty("location").GetString());
+            Assert.Equal(20000, items[0].GetProperty("studentNumber").GetInt32());
+            Assert.Equal("2026-08-21 10:00:00", items[0].GetProperty("timestamp").GetString());
+
+            // 個人情報（メールアドレス・氏名・出席番号・端末ID）が含まれていないこと
+            string secondBody = capturedBodies.ToArray()[1];
+            foreach (string body in new[] { firstBody, secondBody })
+            {
+                Assert.DoesNotContain("\"to\"", body);
+                Assert.DoesNotContain("studentName", body);
+                Assert.DoesNotContain("studentCode", body);
+                Assert.DoesNotContain("clientId", body);
+                Assert.DoesNotContain("@tokyo.kosen-ac.jp", body);
+                Assert.DoesNotContain("氏名", body);
+                Assert.DoesNotContain("terminal-", body);
+                Assert.DoesNotContain("code-", body);
+            }
+
+            using var secondDoc = JsonDocument.Parse(secondBody);
+            Assert.Equal(5, secondDoc.RootElement.EnumerateArray().Count());
+
+            // 送信結果が DB ログに記録されていること
+            Assert.Equal(25, _db.NotificationLogs.Count());
+            Assert.All(_db.NotificationLogs.ToList(), log => Assert.True(log.IsSuccess));
+        }
+
+        [Fact]
         public async Task ServerSyncService_SuccessResponse_ClearsQueueAndUpdatesStatus()
         {
             var mockHandler = new MockHttpMessageHandler((req) =>
@@ -544,6 +642,25 @@ namespace Tenko.Tests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             return Task.FromResult(_handler(request));
+        }
+    }
+
+    internal sealed class CapturingWebhookHandler : HttpMessageHandler
+    {
+        private readonly ConcurrentQueue<string> _bodies;
+
+        public CapturingWebhookHandler(ConcurrentQueue<string> bodies)
+        {
+            _bodies = bodies;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            string body = request.Content == null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+            _bodies.Enqueue(body);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK);
         }
     }
 

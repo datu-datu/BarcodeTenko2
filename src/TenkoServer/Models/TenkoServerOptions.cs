@@ -35,5 +35,15 @@ namespace TenkoServer.Models
         /// メール通知を有効にするかどうか
         /// </summary>
         public bool EnableNotifications { get; set; } = true;
+
+        /// <summary>
+        /// 1回のWebhook送信にまとめる通知の最大件数（この件数に達した時点で送信する）
+        /// </summary>
+        public int MaxNotificationsPerBatch { get; set; } = 20;
+
+        /// <summary>
+        /// 最後のスキャン受信からバッチ送信まで待機する秒数（この時間が経過した時点で送信する）
+        /// </summary>
+        public int NotificationBatchWindowSeconds { get; set; } = 10;
     }
 }
