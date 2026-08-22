@@ -33,8 +33,26 @@ namespace Tenko.Native
                 }
             };
 
-            // 起動直後に入力欄へフォーカスを移す
-            Loaded += (s, e) => ManualInputBox.Focus();
+            // 起動直後またはモーダル閉鎖時に入力欄へフォーカスを移す
+            Loaded += (s, e) =>
+            {
+                if (!_viewModel.ShowInitialLocationModal && !_viewModel.ShowSettingsModal)
+                {
+                    ManualInputBox.Focus();
+                }
+            };
+
+            _viewModel.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(MainViewModel.ShowInitialLocationModal) && !_viewModel.ShowInitialLocationModal)
+                {
+                    Dispatcher.Invoke(() => ManualInputBox.Focus());
+                }
+                else if (e.PropertyName == nameof(MainViewModel.ShowSettingsModal) && !_viewModel.ShowSettingsModal)
+                {
+                    Dispatcher.Invoke(() => ManualInputBox.Focus());
+                }
+            };
         }
 
         // Enter キーでスキャン処理を実行し、入力欄へ再フォーカス

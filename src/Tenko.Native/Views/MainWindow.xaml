@@ -197,6 +197,24 @@
         </StatusBar>
 
         <!-- Modals -->
+        <!-- Initial Location Select Modal -->
+        <Border Grid.RowSpan="3" Background="#66000000" Visibility="{Binding ShowInitialLocationModal, Converter={StaticResource BoolToVis}}" Panel.ZIndex="3500">
+            <Border Background="{StaticResource BackgroundBrush}" Width="320" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="20" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="点呼場所の選択" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+                    <TextBlock Text="スキャンを行う場所を選択してください。" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,15"/>
+
+                    <TextBlock Text="場所を選択" FontSize="11" Margin="0,0,0,5"/>
+                    <ComboBox ItemsSource="{Binding Locations}" SelectedItem="{Binding CurrentLocation, Mode=TwoWay}" 
+                            Height="26" Margin="0,0,0,20"/>
+
+                    <Button Content="点呼を開始する" Command="{Binding StartSessionCommand}" 
+                            IsEnabled="{Binding IsLocationSet}"
+                            Style="{StaticResource ModernButton}" Height="30"/>
+                </StackPanel>
+            </Border>
+        </Border>
+
         <!-- Tenko Complete Modal -->
         <Border Grid.RowSpan="3" Background="#66000000" Visibility="{Binding ShowCompleteModal, Converter={StaticResource BoolToVis}}" Panel.ZIndex="2000">
             <Border Background="{StaticResource BackgroundBrush}" Width="400" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="20" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">

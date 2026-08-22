@@ -258,15 +258,27 @@ public class TenkoTests : IDisposable
         clockService.TriggerTick(new DateTime(2026, 8, 22, 10, 0, 1));
         Assert.Equal("2026-08-22 10:00:01", vm.CurrentTimeString);
 
-        // 場所が未選択の場合
+        // 初回起動時モーダルの確認（SettingsService の初期値に応じて設定）
         vm.CurrentLocation = string.Empty;
+        vm.ShowInitialLocationModal = true;
+        Assert.True(vm.ShowInitialLocationModal);
+
+        // 未選択状態で開始しようとすると警告
+        vm.StartSessionCommand.Execute(null);
+        Assert.True(vm.ShowInitialLocationModal);
+
+        // 場所が未選択の場合
         vm.ManualInput = "21021";
         vm.SubmitCommand.Execute(null);
         Assert.Equal(NotificationType.Warning, lastType);
         Assert.Contains("スキャン場所を選択してください", lastNotification);
 
-        // 場所を設定
+        // 場所を設定して点呼開始
         vm.CurrentLocation = "テスト部屋";
+        vm.StartSessionCommand.Execute(null);
+        Assert.False(vm.ShowInitialLocationModal);
+        Assert.Equal(NotificationType.Success, lastType);
+        Assert.Contains("点呼を開始しました", lastNotification);
 
         // 数字以外
         vm.ManualInput = "ABCDE";

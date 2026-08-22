@@ -25,6 +25,7 @@ namespace Tenko.Native.ViewModels
         private string _searchText = string.Empty;
         private string _currentLocation = string.Empty;
         private string _currentTimeString = string.Empty;
+        private bool _showInitialLocationModal = false;
         private bool _showSettingsModal = false;
         private bool _showBinWarning = false;
         private bool _showCompleteModal = false;
@@ -124,9 +125,28 @@ namespace Tenko.Native.ViewModels
             RenameWarningCommand = new RelayCommand(_ => ExecuteRenameWarning());
             DismissWarningCommand = new RelayCommand(_ => ShowBinWarning = false);
 
+            StartSessionCommand = new RelayCommand(_ =>
+            {
+                if (IsLocationSet)
+                {
+                    ShowInitialLocationModal = false;
+                    _notificationService.Success($"「{CurrentLocation}」で点呼を開始しました。");
+                }
+                else
+                {
+                    _notificationService.Warning("スキャン場所を選択してください。");
+                }
+            });
+
             // 初期データ読み込み
             LoadHistory();
             CheckBinFile();
+
+            // 場所が未設定の場合は初回場所選択モーダルを表示
+            if (!IsLocationSet)
+            {
+                ShowInitialLocationModal = true;
+            }
         }
 
         #region Properties
@@ -173,6 +193,12 @@ namespace Tenko.Native.ViewModels
         {
             get => _currentTimeString;
             private set => SetProperty(ref _currentTimeString, value);
+        }
+
+        public bool ShowInitialLocationModal
+        {
+            get => _showInitialLocationModal;
+            set => SetProperty(ref _showInitialLocationModal, value);
         }
 
         public bool ShowSettingsModal
@@ -246,6 +272,7 @@ namespace Tenko.Native.ViewModels
         public ICommand CompleteRenameCommand { get; }
         public ICommand RenameWarningCommand { get; }
         public ICommand DismissWarningCommand { get; }
+        public ICommand StartSessionCommand { get; }
 
         #endregion
 
