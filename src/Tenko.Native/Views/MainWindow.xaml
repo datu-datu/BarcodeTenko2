@@ -107,22 +107,29 @@
 
                 <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,10,0,0">
                     <!-- Search UI above the clock -->
-                    <Border Background="#F9F9F9" Padding="8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,0,0,10">
+                    <Border Background="#F9F9F9" Padding="10,8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,0,0,10">
                         <StackPanel>
-                            <DockPanel LastChildFill="True" Margin="0,0,0,5">
-                                <Button DockPanel.Dock="Right" Content="×" Command="{Binding ClearSearchCommand}"
-                                        Visibility="{Binding IsFiltered, Converter={StaticResource BoolToVis}}"
-                                        Style="{StaticResource ModernButton}" Width="20" Height="20" Padding="0" Margin="5,0,0,0"
-                                        ToolTip="検索をクリア"/>
+                            <!-- Header: Title and Filter Badge -->
+                            <DockPanel LastChildFill="False" Margin="0,0,0,6">
                                 <TextBlock Text="履歴の検索" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <Border DockPanel.Dock="Right" Background="#E8F5E9" Padding="5,1" CornerRadius="2"
+                                        Visibility="{Binding IsFiltered, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock Text="絞り込み中" FontSize="10" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold"/>
+                                </Border>
                             </DockPanel>
+
+                            <!-- Input Box with Embedded Clear Button -->
                             <Grid>
                                 <TextBox Style="{StaticResource ModernTextBox}"
                                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                                        FontSize="12" Height="24" VerticalContentAlignment="Center"/>
-                                <TextBlock Text="フィルタ適用中" FontSize="10" Foreground="{StaticResource SuccessBrush}"
-                                           HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-15,2,0"
-                                           Visibility="{Binding IsFiltered, Converter={StaticResource BoolToVis}}"/>
+                                        FontSize="12" Height="26" VerticalContentAlignment="Center"
+                                        Padding="5,2,24,2"/>
+                                <Button Content="✕" Command="{Binding ClearSearchCommand}"
+                                        Visibility="{Binding IsFiltered, Converter={StaticResource BoolToVis}}"
+                                        HorizontalAlignment="Right" VerticalAlignment="Center"
+                                        Width="20" Height="20" Margin="0,0,3,0"
+                                        BorderThickness="0" Background="Transparent" Foreground="#888888"
+                                        Cursor="Hand" ToolTip="検索をクリア" FontSize="11"/>
                             </Grid>
                         </StackPanel>
                     </Border>
