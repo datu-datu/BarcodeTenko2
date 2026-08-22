@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Tenko.Native"
+        xmlns:vm="clr-namespace:Tenko.Native.ViewModels"
         mc:Ignorable="d"
         Title="点呼" Height="600" Width="800"
         Background="{StaticResource BackgroundBrush}"
@@ -37,7 +38,8 @@
         <Border Grid.Row="0" Background="{StaticResource BackgroundBrush}" Padding="10,5"
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
             <DockPanel>
-                <Button Content="設定" DockPanel.Dock="Right" Style="{StaticResource ModernButton}" Click="SettingsButton_Click"/>
+                <Button Content="設定" DockPanel.Dock="Right" Style="{StaticResource ModernButton}" 
+                        Command="{Binding OpenSettingsCommand}"/>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="場所:" Margin="0,0,5,0" VerticalAlignment="Center"/>
                     <TextBlock VerticalAlignment="Center">
@@ -99,11 +101,7 @@
 
                         <Button Content="点呼完了" Command="{Binding OpenCompleteModalCommand}"
                                 IsEnabled="{Binding IsLocationSet}"
-                                Style="{StaticResource ModernButton}" Margin="0,0,0,5"/>
-
-                        <Button Content="全履歴を削除" Command="{Binding DeleteAllCommand}" 
-                                IsEnabled="{Binding IsLocationSet}"
-                                Style="{StaticResource ModernButton}" Foreground="{StaticResource DangerBrush}"/>
+                                Style="{StaticResource ModernButton}"/>
                     </StackPanel>
                 </Border>
 
@@ -129,8 +127,7 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock x:Name="CurrentTimeText" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
-                    <TextBlock x:Name="DeadlineText" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" Visibility="Collapsed" />
+                    <TextBlock Text="{Binding CurrentTimeString}" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
                 </StackPanel>
             </Grid>
 
@@ -199,7 +196,7 @@
             </DockPanel>
         </StatusBar>
 
-        <!-- Modals (Classical approach: simple centered borders) -->
+        <!-- Modals -->
         <!-- Tenko Complete Modal -->
         <Border Grid.RowSpan="3" Background="#66000000" Visibility="{Binding ShowCompleteModal, Converter={StaticResource BoolToVis}}" Panel.ZIndex="2000">
             <Border Background="{StaticResource BackgroundBrush}" Width="400" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="20" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
@@ -209,12 +206,14 @@
                         TextWrapping="Wrap" Margin="0,0,0,15"/>
 
                     <TextBlock Text="ファイル名の末尾（例：朝，午後）" FontSize="11" Margin="0,0,0,5"/>
-                    <TextBox x:Name="CompleteRenameTextBox" Style="{StaticResource ModernTextBox}" Height="25" Margin="0,0,0,20"/>
+                    <TextBox Style="{StaticResource ModernTextBox}" 
+                            Text="{Binding CompleteRenameTargetName, UpdateSourceTrigger=PropertyChanged}"
+                            Height="25" Margin="0,0,0,20"/>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="完了して退避" Click="CompleteRenameButton_Click"
+                        <Button Content="完了して退避" Command="{Binding CompleteRenameCommand}"
                                 Style="{StaticResource ModernButton}" Margin="0,0,10,0"/>
-                        <Button Content="キャンセル" Click="CancelComplete_Click"
+                        <Button Content="キャンセル" Command="{Binding CloseCompleteModalCommand}"
                                 Style="{StaticResource ModernButton}"/>
                     </StackPanel>
                 </StackPanel>
@@ -230,12 +229,14 @@
                         TextWrapping="Wrap" Margin="0,0,0,15"/>
                     
                     <TextBlock Text="新しいファイル名" FontSize="11" Margin="0,0,0,5"/>
-                    <TextBox x:Name="RenameTextBox" Style="{StaticResource ModernTextBox}" Height="25" Margin="0,0,0,20"/>
+                    <TextBox Style="{StaticResource ModernTextBox}" 
+                            Text="{Binding RenameTargetName, UpdateSourceTrigger=PropertyChanged}"
+                            Height="25" Margin="0,0,0,20"/>
                     
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="名前を変更" Click="RenameButton_Click"
+                        <Button Content="名前を変更" Command="{Binding RenameWarningCommand}"
                                 Style="{StaticResource ModernButton}" Margin="0,0,10,0"/>
-                        <Button Content="そのまま追記" Click="DismissWarning_Click"
+                        <Button Content="そのまま追記" Command="{Binding DismissWarningCommand}"
                                 Style="{StaticResource ModernButton}"/>
                     </StackPanel>
                 </StackPanel>
@@ -243,7 +244,7 @@
         </Border>
 
         <!-- Settings Modal -->
-        <Border x:Name="SettingsModal" Grid.RowSpan="3" Background="#66000000" Visibility="Collapsed" Panel.ZIndex="3000">
+        <Border Grid.RowSpan="3" Background="#66000000" Visibility="{Binding ShowSettingsModal, Converter={StaticResource BoolToVis}}" Panel.ZIndex="3000">
             <Border Background="{StaticResource BackgroundBrush}" Width="300" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="20" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                 <StackPanel>
                     <TextBlock Text="設定" FontSize="16" FontWeight="Bold" Margin="0,0,0,15"/>
@@ -255,7 +256,7 @@
                     <Separator Margin="0,0,0,15" Background="{StaticResource BorderBrush}"/>
 
                     <TextBlock Text="エクスポート" FontSize="11" Margin="0,0,0,5"/>
-                    <Grid Margin="0,0,0,20">
+                    <Grid Margin="0,0,0,15">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
@@ -265,8 +266,16 @@
                         <Button Grid.Column="1" Content="BIN" Command="{Binding ExportBinCommand}" 
                                 Style="{StaticResource ModernButton}" Margin="2,0,0,0"/>
                     </Grid>
+
+                    <Separator Margin="0,0,0,15" Background="{StaticResource BorderBrush}"/>
+
+                    <TextBlock Text="履歴管理" FontSize="11" Margin="0,0,0,5"/>
+                    <Button Content="全履歴を削除" Command="{Binding DeleteAllCommand}" 
+                            IsEnabled="{Binding IsLocationSet}"
+                            Style="{StaticResource ModernButton}" Foreground="{StaticResource DangerBrush}"
+                            Margin="0,0,0,20"/>
                     
-                    <Button Content="閉じる" Click="CloseSettings_Click" Style="{StaticResource ModernButton}" HorizontalAlignment="Right"/>
+                    <Button Content="閉じる" Command="{Binding CloseSettingsCommand}" Style="{StaticResource ModernButton}" HorizontalAlignment="Right"/>
                 </StackPanel>
             </Border>
         </Border>

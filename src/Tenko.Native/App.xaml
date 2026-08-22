@@ -1,7 +1,6 @@
 <Application x:Class="Tenko.Native.App"
-            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-            StartupUri="Views/MainWindow.xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
         <!-- Colors -->
         <SolidColorBrush x:Key="BackgroundBrush" Color="{x:Static SystemColors.ControlColor}"/>

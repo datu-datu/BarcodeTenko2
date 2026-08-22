@@ -44,8 +44,8 @@ namespace Tenko.Native.Services
         private readonly string? _persistPath;
         private readonly string? _deletePersistPath;
         private readonly DispatcherTimer? _retryTimer;
-        private bool _isSyncing = false;
-        private bool _isFlushingDeletions = false;
+        private readonly SemaphoreSlim _syncSemaphore = new(1, 1);
+        private readonly SemaphoreSlim _deleteSemaphore = new(1, 1);
 
         public event Action<SyncStatus, string>? OnStatusChanged;
 
@@ -135,85 +135,85 @@ namespace Tenko.Native.Services
                 return;
             }
 
-            List<ScanRecord> batch;
-            lock (_lock)
-            {
-                if (_isSyncing || _pendingRecords.Count == 0) return;
-                _isSyncing = true;
-                batch = _pendingRecords.ToList();
-            }
-
-            UpdateStatus(SyncStatus.Syncing, "☁ 送信中...");
-
+            await _syncSemaphore.WaitAsync();
             try
             {
-                string endpoint = EmbeddedServerConfig.ServerUrl.TrimEnd('/') + "/api/v1/scans";
-
-                var payload = new
+                List<ScanRecord> batch;
+                lock (_lock)
                 {
-                    clientId = EmbeddedServerConfig.ClientId,
-                    records = batch.Select(r => new
-                    {
-                        id = r.Id,
-                        timestamp = r.Timestamp.ToString("yyyy-MM-ddTHH:mm:ss"),
-                        barcode = r.Barcode,
-                        last5 = r.Last5,
-                        location = r.Location
-                    }).ToList()
-                };
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-                if (!string.IsNullOrWhiteSpace(EmbeddedServerConfig.ApiKey))
-                {
-                    request.Headers.Add("X-API-Key", EmbeddedServerConfig.ApiKey);
+                    if (_pendingRecords.Count == 0) return;
+                    batch = _pendingRecords.ToList();
                 }
-                request.Content = JsonContent.Create(payload);
 
-                var response = await _httpClient.SendAsync(request);
+                UpdateStatus(SyncStatus.Syncing, "☁ 送信中...");
 
-                if (response.IsSuccessStatusCode)
+                try
                 {
-                    bool removed = false;
-                    lock (_lock)
-                    {
-                        var sentIds = new HashSet<string>(batch.Select(b => b.Id));
-                        removed = _pendingRecords.RemoveAll(r => sentIds.Contains(r.Id)) > 0;
-                    }
+                    string endpoint = EmbeddedServerConfig.ServerUrl.TrimEnd('/') + "/api/v1/scans";
 
-                    if (removed)
+                    var payload = new
                     {
-                        SavePendingRecords();
-                    }
+                        clientId = EmbeddedServerConfig.ClientId,
+                        records = batch.Select(r => new
+                        {
+                            id = r.Id,
+                            timestamp = r.Timestamp.ToString("yyyy-MM-ddTHH:mm:ss"),
+                            barcode = r.Barcode,
+                            last5 = r.Last5,
+                            location = r.Location
+                        }).ToList()
+                    };
 
-                    int remaining = PendingCount;
-                    if (remaining == 0)
+                    using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                    if (!string.IsNullOrWhiteSpace(EmbeddedServerConfig.ApiKey))
                     {
-                        UpdateStatus(SyncStatus.Synced, "☁ 同期済");
+                        request.Headers.Add("X-API-Key", EmbeddedServerConfig.ApiKey);
+                    }
+                    request.Content = JsonContent.Create(payload);
+
+                    var response = await _httpClient.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        bool removed = false;
+                        lock (_lock)
+                        {
+                            var sentIds = new HashSet<string>(batch.Select(b => b.Id));
+                            removed = _pendingRecords.RemoveAll(r => sentIds.Contains(r.Id)) > 0;
+                        }
+
+                        if (removed)
+                        {
+                            SavePendingRecords();
+                        }
+
+                        int remaining = PendingCount;
+                        if (remaining == 0)
+                        {
+                            UpdateStatus(SyncStatus.Synced, "☁ 同期済");
+                        }
+                        else
+                        {
+                            UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {remaining}件");
+                        }
                     }
                     else
                     {
-                        UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {remaining}件");
+                        int remaining = PendingCount;
+                        UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {remaining}件 (HTTP {(int)response.StatusCode})");
+                        Debug.WriteLine($"[ServerSyncService] Sync failed: HTTP {response.StatusCode}");
                     }
                 }
-                else
+                catch (Exception ex)
                 {
                     int remaining = PendingCount;
-                    UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {remaining}件 (HTTP {(int)response.StatusCode})");
-                    Debug.WriteLine($"[ServerSyncService] Sync failed: HTTP {response.StatusCode}");
+                    UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {remaining}件 (オフライン)");
+                    Debug.WriteLine($"[ServerSyncService] Network exception: {ex.Message}");
                 }
-            }
-            catch (Exception ex)
-            {
-                int remaining = PendingCount;
-                UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {remaining}件 (オフライン)");
-                Debug.WriteLine($"[ServerSyncService] Network exception: {ex.Message}");
             }
             finally
             {
-                lock (_lock)
-                {
-                    _isSyncing = false;
-                }
+                _syncSemaphore.Release();
             }
         }
 
@@ -302,69 +302,69 @@ namespace Tenko.Native.Services
                 return;
             }
 
-            List<string> batch;
-            lock (_lock)
-            {
-                if (_isFlushingDeletions || _pendingDeletions.Count == 0) return;
-                _isFlushingDeletions = true;
-                batch = _pendingDeletions.ToList();
-            }
-
+            await _deleteSemaphore.WaitAsync();
             try
             {
-                string endpoint = EmbeddedServerConfig.ServerUrl.TrimEnd('/') + "/api/v1/scans/delete";
-
-                var payload = new
+                List<string> batch;
+                lock (_lock)
                 {
-                    clientId = EmbeddedServerConfig.ClientId,
-                    ids = batch
-                };
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-                if (!string.IsNullOrWhiteSpace(EmbeddedServerConfig.ApiKey))
-                {
-                    request.Headers.Add("X-API-Key", EmbeddedServerConfig.ApiKey);
+                    if (_pendingDeletions.Count == 0) return;
+                    batch = _pendingDeletions.ToList();
                 }
-                request.Content = JsonContent.Create(payload);
 
-                var response = await _httpClient.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
+                try
                 {
-                    bool removed = false;
-                    lock (_lock)
-                    {
-                        var sentIds = new HashSet<string>(batch);
-                        removed = _pendingDeletions.RemoveAll(i => sentIds.Contains(i)) > 0;
-                    }
+                    string endpoint = EmbeddedServerConfig.ServerUrl.TrimEnd('/') + "/api/v1/scans/delete";
 
-                    if (removed)
+                    var payload = new
                     {
-                        SavePendingDeletions();
+                        clientId = EmbeddedServerConfig.ClientId,
+                        ids = batch
+                    };
+
+                    using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                    if (!string.IsNullOrWhiteSpace(EmbeddedServerConfig.ApiKey))
+                    {
+                        request.Headers.Add("X-API-Key", EmbeddedServerConfig.ApiKey);
+                    }
+                    request.Content = JsonContent.Create(payload);
+
+                    var response = await _httpClient.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        bool removed = false;
+                        lock (_lock)
+                        {
+                            var sentIds = new HashSet<string>(batch);
+                            removed = _pendingDeletions.RemoveAll(i => sentIds.Contains(i)) > 0;
+                        }
+
+                        if (removed)
+                        {
+                            SavePendingDeletions();
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                // オフライン等の場合はキューに保持し、次回のリトライで再送する
-                Debug.WriteLine($"[ServerSyncService] Deletion flush failed: {ex.Message}");
+                catch (Exception ex)
+                {
+                    // オフライン等の場合はキューに保持し、次回のリトライで再送する
+                    Debug.WriteLine($"[ServerSyncService] Deletion flush failed: {ex.Message}");
+                }
+
+                int pendingRecords = PendingCount;
+                if (pendingRecords == 0 && PendingDeletionCount == 0)
+                {
+                    UpdateStatus(SyncStatus.Synced, "☁ 同期済");
+                }
+                else if (PendingDeletionCount > 0)
+                {
+                    UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {pendingRecords}件");
+                }
             }
             finally
             {
-                lock (_lock)
-                {
-                    _isFlushingDeletions = false;
-                }
-            }
-
-            int pendingRecords = PendingCount;
-            if (pendingRecords == 0 && PendingDeletionCount == 0)
-            {
-                UpdateStatus(SyncStatus.Synced, "☁ 同期済");
-            }
-            else if (PendingDeletionCount > 0)
-            {
-                UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {pendingRecords}件");
+                _deleteSemaphore.Release();
             }
         }
 
@@ -529,6 +529,8 @@ namespace Tenko.Native.Services
         {
             _retryTimer?.Stop();
             _httpClient?.Dispose();
+            _syncSemaphore.Dispose();
+            _deleteSemaphore.Dispose();
         }
     }
 }

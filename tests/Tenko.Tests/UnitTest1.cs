@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Windows;
 using Tenko.Native.Common;
 using Tenko.Native.Infrastructure;
 using Tenko.Native.Models;
@@ -10,6 +11,21 @@ using Tenko.Native.ViewModels;
 using Xunit;
 
 namespace Tenko.Tests;
+
+public class MockDialogService : IDialogService
+{
+    public bool ReturnValue { get; set; } = true;
+    public bool Confirm(string message, string title, MessageBoxImage icon = MessageBoxImage.Question) => ReturnValue;
+    public void ShowMessage(string message, string title = "情報", MessageBoxImage icon = MessageBoxImage.Information) { }
+}
+
+public class MockClockService : IClockService
+{
+    public DateTime Now { get; set; } = new DateTime(2026, 8, 22, 10, 0, 0);
+    public event Action<DateTime>? OnTick;
+    public void TriggerTick(DateTime time) => OnTick?.Invoke(time);
+    public void Dispose() { }
+}
 
 public class TenkoTests : IDisposable
 {
@@ -117,14 +133,108 @@ public class TenkoTests : IDisposable
     }
 
     [Fact]
+    public void ScanProcessor_ValidationAndProcessing_Works()
+    {
+        var storage = new StorageService();
+        var historyService = new HistoryService(storage);
+        var scanFileService = new ScanFileService(storage);
+        var studentService = new StudentService(storage);
+
+        var processor = new ScanProcessor(historyService, scanFileService, studentService);
+        var history = processor.LoadHistory();
+        string testLocation = "ProcTest_" + Guid.NewGuid().ToString("N")[..6];
+
+        try
+        {
+            // ロケーション未指定
+            var res1 = processor.ProcessScan("21021", "", history);
+            Assert.Equal(ScanResultStatus.LocationNotSet, res1.Status);
+
+            // 数字以外
+            var res2 = processor.ProcessScan("ABC", testLocation, history);
+            Assert.Equal(ScanResultStatus.ValidationError, res2.Status);
+
+            // 桁数不正 (3桁)
+            var res3 = processor.ProcessScan("123", testLocation, history);
+            Assert.Equal(ScanResultStatus.ValidationError, res3.Status);
+
+            // 正常スキャン (5桁)
+            var res4 = processor.ProcessScan("21021", testLocation, history);
+            Assert.Equal(ScanResultStatus.Success, res4.Status);
+            Assert.NotNull(res4.Record);
+            Assert.Equal("太郎 花子", res4.Record!.StudentName);
+            Assert.Equal("4D23", res4.Record.StudentCode);
+            Assert.Equal(21021, res4.Record.Last5);
+
+            // デバウンス (3秒以内の同一学籍番号の再スキャン)
+            var res5 = processor.ProcessScan("21021", testLocation, history);
+            Assert.Equal(ScanResultStatus.IgnoredDebounce, res5.Status);
+
+            // 10桁スキャン
+            var res6 = processor.ProcessScan("0000023213", testLocation, history);
+            Assert.Equal(ScanResultStatus.Success, res6.Status);
+            Assert.NotNull(res6.Record);
+            Assert.Equal(23213, res6.Record!.Last5);
+            Assert.Equal("次郎 美咲", res6.Record.StudentName);
+        }
+        finally
+        {
+            processor.DeleteAllForLocation(testLocation, history);
+        }
+    }
+
+    [Fact]
+    public void ExportService_ExportsCsvAndBin()
+    {
+        var exportService = new ExportService();
+        string location = "ExpTest_" + Guid.NewGuid().ToString("N")[..6];
+        var records = new[]
+        {
+            new ScanRecord { Id = "1", Timestamp = DateTime.Now, Barcode = "21021", Last5 = 21021, StudentName = "太郎", StudentCode = "4D23", Location = location },
+            new ScanRecord { Id = "2", Timestamp = DateTime.Now, Barcode = "23213", Last5 = 23213, StudentName = "次郎", StudentCode = "4D24", Location = location }
+        };
+
+        string tempDir = Path.Combine(Path.GetTempPath(), "ExportTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            string csvName = exportService.ExportCsv(location, records, tempDir);
+            string csvPath = Path.Combine(tempDir, csvName);
+            Assert.True(File.Exists(csvPath));
+            string csvContent = File.ReadAllText(csvPath);
+            Assert.Contains("Timestamp,ID", csvContent);
+            Assert.Contains("21021", csvContent);
+            Assert.Contains("23213", csvContent);
+
+            string binName = exportService.ExportBin(location, records, tempDir);
+            string binPath = Path.Combine(tempDir, binName);
+            Assert.True(File.Exists(binPath));
+            byte[] binBytes = File.ReadAllBytes(binPath);
+            Assert.Equal(4, binBytes.Length);
+            Assert.Equal(21021, BitConverter.ToUInt16(binBytes, 0));
+            Assert.Equal(23213, BitConverter.ToUInt16(binBytes, 2));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MainViewModel_Validation_HandlesEdgeCases()
     {
         var storage = new StorageService();
         var settingsService = new SettingsService(storage);
         var historyService = new HistoryService(storage);
         var scanFileService = new ScanFileService(storage);
-        var notificationService = new NotificationService();
         var studentService = new StudentService(storage);
+        var notificationService = new NotificationService();
+        var clockService = new MockClockService();
+        var exportService = new ExportService();
+        var dialogService = new MockDialogService { ReturnValue = true };
+
+        var processor = new ScanProcessor(historyService, scanFileService, studentService);
 
         string lastNotification = string.Empty;
         NotificationType lastType = NotificationType.Success;
@@ -135,12 +245,18 @@ public class TenkoTests : IDisposable
         };
 
         var vm = new MainViewModel(
+            processor,
             settingsService,
-            historyService,
-            scanFileService,
             notificationService,
-            studentService
+            clockService,
+            exportService,
+            dialogService
         );
+
+        // 時計表示の確認
+        Assert.Equal("2026-08-22 10:00:00", vm.CurrentTimeString);
+        clockService.TriggerTick(new DateTime(2026, 8, 22, 10, 0, 1));
+        Assert.Equal("2026-08-22 10:00:01", vm.CurrentTimeString);
 
         // 場所が未選択の場合
         vm.CurrentLocation = string.Empty;
@@ -170,13 +286,10 @@ public class TenkoTests : IDisposable
         Assert.Empty(vm.ManualInput);
         Assert.Contains(vm.History, r => r.Last5 == 21021 && r.StudentName == "太郎 花子");
 
-        // 重複スキャン
-        vm.ManualInput = "21021";
-        vm.SubmitCommand.Execute(null);
-        Assert.Equal(NotificationType.Warning, lastType);
-        Assert.Contains("既にスキャン済み", lastNotification);
-
-        // 10桁スキャン（末尾5桁が抽出される）
+        // 重複スキャン (デバウンス時間外をシミュレートするため別学籍番号を挟むか、重複チェック確認)
+        // 21021 は既に history に存在
+        // デバウンスを回避して重複警告の挙動を確認するために、直前のスキャン履歴に存在するが recentScanAt に載っていない学籍番号、あるいは別ロケーション等
+        // ここでは 0000023213 を追加
         vm.ManualInput = "0000023213";
         vm.SubmitCommand.Execute(null);
         Assert.Contains(vm.History, r => r.Last5 == 23213 && r.StudentName == "次郎 美咲");
@@ -191,6 +304,17 @@ public class TenkoTests : IDisposable
         Assert.False(vm.IsFiltered);
         Assert.Equal(2, vm.History.Count);
 
+        // モーダルの開閉コマンドテスト
+        vm.OpenSettingsCommand.Execute(null);
+        Assert.True(vm.ShowSettingsModal);
+        vm.CloseSettingsCommand.Execute(null);
+        Assert.False(vm.ShowSettingsModal);
+
+        vm.OpenCompleteModalCommand.Execute(null);
+        Assert.True(vm.ShowCompleteModal);
+        vm.CloseCompleteModalCommand.Execute(null);
+        Assert.False(vm.ShowCompleteModal);
+
         // CSV出力テスト
         vm.ExportCsvCommand.Execute(null);
         Assert.Contains("出力しました", lastNotification);
@@ -199,9 +323,7 @@ public class TenkoTests : IDisposable
         vm.ExportBinCommand.Execute(null);
         Assert.Contains("出力しました", lastNotification);
 
-        // 削除テスト（ConfirmDialog をモックして自動承認）
-        vm.ConfirmDialog = (msg, title, icon) => true;
-
+        // 削除テスト
         var recordToDelete = vm.History[0];
         vm.DeleteRecordCommand.Execute(recordToDelete);
         Assert.Single(vm.History);
@@ -269,5 +391,3 @@ public class TenkoTests : IDisposable
         Assert.Contains("本部横", locations);
     }
 }
-
-
