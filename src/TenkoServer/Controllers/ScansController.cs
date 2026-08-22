@@ -162,6 +162,8 @@ namespace TenkoServer.Controllers
         /// ScanId 指定のみを許可し、かつ要求元 ClientId と一致するレコードのみ削除するため、
         /// 他端末が登録した正当なスキャンが消えることはない。
         /// 存在しない Id / 他端末の Id はエラーではなく no-op として扱う。
+        /// 削除は論理削除 (IsDeleted フラグ設定) のみ行い、データ自体は保持する。
+        /// グローバルクエリフィルタにより重複チェック等から自動的に除外される。
         /// </summary>
         [HttpPost("delete")]
         public async Task<ActionResult<ScanDeleteResponseDto>> DeleteScans([FromBody] ScanDeleteRequestDto? request)
@@ -178,15 +180,22 @@ namespace TenkoServer.Controllers
 
             string clientId = request.ClientId ?? string.Empty;
 
+            // クエリフィルタにより既に論理削除済みのレコードは対象外 -> 冪等
             var targets = await _db.Scans
                 .Where(s => request.Ids.Contains(s.Id) && s.ClientId == clientId)
                 .ToListAsync();
 
             if (targets.Count > 0)
             {
-                _db.Scans.RemoveRange(targets);
+                DateTime deletedAt = DateTime.UtcNow;
+                foreach (var scan in targets)
+                {
+                    scan.IsDeleted = true;
+                    scan.DeletedAt = deletedAt;
+                    scan.DeletedByClientId = clientId;
+                }
                 await _db.SaveChangesAsync();
-                _logger.LogInformation("Deleted {DeletedCount} scan(s) requested by client '{ClientId}' (requested {RequestedCount}).",
+                _logger.LogInformation("Soft-deleted {DeletedCount} scan(s) requested by client '{ClientId}' (requested {RequestedCount}).",
                     targets.Count, clientId, request.Ids.Count);
             }
 

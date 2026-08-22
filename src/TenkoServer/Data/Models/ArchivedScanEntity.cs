@@ -53,5 +53,18 @@ namespace TenkoServer.Data.Models
         public string? SessionLabel { get; set; }
 
         public DateTime ClosedAt { get; set; }
+
+        /// <summary>
+        /// 論理削除フラグ (締め操作時に Scans から引き継ぐ)。
+        /// エクスポートやセッション集計からは除外されるが、データ自体は保持される。
+        /// </summary>
+        public bool IsDeleted { get; set; }
+
+        /// <summary>論理削除日時 (UTC)。未削除時は null</summary>
+        public DateTime? DeletedAt { get; set; }
+
+        /// <summary>削除を要求したクライアント</summary>
+        [MaxLength(50)]
+        public string DeletedByClientId { get; set; } = string.Empty;
     }
 }

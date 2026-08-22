@@ -298,6 +298,38 @@ body {
 .badge-info { background: #e0f2fe; color: #0369a1; }
 .badge-muted { background: #f1f5f9; color: var(--text-muted); }
 
+/* --- 論理削除済み行の表示 (git diff の削除行風) --- */
+.diffstat {
+    font-size: 12px;
+    font-weight: 700;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.diffstat-del {
+    color: var(--danger);
+}
+
+.data-table tr.row-deleted td {
+    background-color: #ffebe9;
+    border-bottom-color: #ffd6d2;
+}
+
+.data-table tr.row-deleted:hover td {
+    background-color: #ffdedb;
+}
+
+.data-table tr.row-deleted .cell-main {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    color: #9f1239;
+}
+
+.data-table tr.row-deleted .badge-muted {
+    background: #fecdd3;
+    color: #9f1239;
+}
+
 /* --- Notification Panel --- */
 .notification-control-panel {
     display: flex;

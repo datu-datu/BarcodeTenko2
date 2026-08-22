@@ -48,10 +48,15 @@ namespace TenkoServer.Controllers
         {
             string targetDate = string.IsNullOrWhiteSpace(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date;
 
-            var query = _db.Scans.Where(s => s.ScanDate == targetDate);
+            // 削除フラグ込みで全件取得し、集計は有効レコードのみで行う
+            var allRows = await _db.Scans
+                .IgnoreQueryFilters()
+                .Where(s => s.ScanDate == targetDate)
+                .ToListAsync();
 
-            int totalScans = await query.CountAsync();
-            var scans = await query.ToListAsync();
+            int deletedCount = allRows.Count(s => s.IsDeleted);
+            var scans = allRows.Where(s => !s.IsDeleted).ToList();
+            int totalScans = scans.Count;
 
             var uniqueStudents = scans.Select(s => s.Last5).Distinct().ToList();
             int uniqueCount = uniqueStudents.Count;
@@ -87,16 +92,24 @@ namespace TenkoServer.Controllers
                 TotalMasterStudents = totalMasterCount,
                 UnverifiedStudentsCount = unverifiedCount,
                 CompletionRatePercentage = completionRate,
+                DeletedScansToday = deletedCount,
                 ScansByLocation = byLocation,
                 RecentScans = recentScans
             });
         }
 
+        /// <summary>
+        /// スキャン履歴を返す (管理パネル用)。
+        /// 論理削除済みレコードも含めて返し、isDeleted フラグでパネル側が
+        /// git diff 風の削除表示 (打ち消し線・着色) を行えるようにする。
+        /// </summary>
         [HttpGet("scans")]
         public async Task<ActionResult<List<ScanItemDto>>> GetScans([FromQuery] string? date, [FromQuery] string? location, [FromQuery] string? search)
         {
             string targetDate = string.IsNullOrWhiteSpace(date) ? DateTime.Today.ToString("yyyy-MM-dd") : date;
-            var query = _db.Scans.Where(s => s.ScanDate == targetDate);
+            var query = _db.Scans
+                .IgnoreQueryFilters()
+                .Where(s => s.ScanDate == targetDate);
 
             if (!string.IsNullOrWhiteSpace(location))
             {
@@ -114,9 +127,9 @@ namespace TenkoServer.Controllers
                     s.Location.ToLower().Contains(lower)).ToList();
             }
 
-            var scanIds = list.Select(s => s.Id).ToList();
+            var activeIds = list.Where(s => !s.IsDeleted).Select(s => s.Id).ToList();
             var sentScanIds = await _db.NotificationLogs
-                .Where(l => scanIds.Contains(l.ScanId) && l.IsSuccess)
+                .Where(l => activeIds.Contains(l.ScanId) && l.IsSuccess)
                 .Select(l => l.ScanId)
                 .Distinct()
                 .ToListAsync();
@@ -131,7 +144,10 @@ namespace TenkoServer.Controllers
                 StudentName = s.StudentName,
                 StudentCode = s.StudentCode,
                 Location = s.Location,
-                NotificationSent = sentSet.Contains(s.Id)
+                NotificationSent = sentSet.Contains(s.Id),
+                IsDeleted = s.IsDeleted,
+                DeletedAt = s.DeletedAt,
+                DeletedByClientId = s.DeletedByClientId
             }).ToList();
 
             return Ok(result);
@@ -156,13 +172,18 @@ namespace TenkoServer.Controllers
 
         /// <summary>
         /// 現在のセッションを締めて、全アクティブデータを ArchivedScans へ退避する。
+        /// 論理削除済みレコードも削除フラグを引き継いだまま退避するため、
+        /// Scans テーブルに削除済み行が取り残されることはない。
         /// 退避後、Scans は空になるため重複チェックがリセットされ、
         /// 同じ学生でも次のセッションで再度点呼できるようになる (BUG-02 対策)。
         /// </summary>
         [HttpPost("sessions/close")]
         public async Task<ActionResult<CloseSessionResponseDto>> CloseSession([FromBody] CloseSessionRequestDto? request)
         {
-            var actives = await _db.Scans.OrderBy(s => s.Timestamp).ToListAsync();
+            var actives = await _db.Scans
+                .IgnoreQueryFilters()
+                .OrderBy(s => s.Timestamp)
+                .ToListAsync();
 
             if (actives.Count == 0)
             {
@@ -195,7 +216,10 @@ namespace TenkoServer.Controllers
                     ScanDate = s.ScanDate,
                     SessionId = sessionId,
                     SessionLabel = label,
-                    ClosedAt = closedAt
+                    ClosedAt = closedAt,
+                    IsDeleted = s.IsDeleted,
+                    DeletedAt = s.DeletedAt,
+                    DeletedByClientId = s.DeletedByClientId
                 }));
                 _db.Scans.RemoveRange(actives);
                 await _db.SaveChangesAsync();
@@ -229,7 +253,8 @@ namespace TenkoServer.Controllers
                     SessionId = g.Key.SessionId,
                     Label = g.Key.SessionLabel,
                     ClosedAt = g.Key.ClosedAt,
-                    ScanCount = g.Count()
+                    ScanCount = g.Count(),
+                    DeletedCount = g.Sum(a => a.IsDeleted ? 1 : 0)
                 })
                 .OrderByDescending(s => s.ClosedAt)
                 .ToListAsync();
@@ -361,7 +386,10 @@ namespace TenkoServer.Controllers
                         Location = a.Location,
                         ClientId = a.ClientId,
                         ReceivedAt = a.ReceivedAt,
-                        ScanDate = a.ScanDate
+                        ScanDate = a.ScanDate,
+                        IsDeleted = a.IsDeleted,
+                        DeletedAt = a.DeletedAt,
+                        DeletedByClientId = a.DeletedByClientId
                     });
                     restoredCount++;
                 }
@@ -429,13 +457,14 @@ namespace TenkoServer.Controllers
         /// エクスポート対象レコードを取得する。
         /// - session 指定時: 該当アーカイブセッションのみ
         /// - 未指定時: 対象日のアクティブ + アーカイブを合算（締め済み過日データも DL 可能にする）
+        /// いずれも論理削除済みレコード (IsDeleted) は除外する。
         /// </summary>
         private async Task<List<ScanEntity>> CollectExportRecordsAsync(string? date, string? location, string? session)
         {
             if (!string.IsNullOrWhiteSpace(session))
             {
                 var archivedOnly = await _db.ArchivedScans
-                    .Where(a => a.SessionId == session)
+                    .Where(a => a.SessionId == session && !a.IsDeleted)
                     .OrderBy(a => a.Timestamp)
                     .ToListAsync();
                 return archivedOnly.Select(ToScanShape).ToList();
@@ -444,7 +473,7 @@ namespace TenkoServer.Controllers
             string targetDate = ResolveTargetDate(date);
 
             IQueryable<ScanEntity> activeQuery = _db.Scans.Where(s => s.ScanDate == targetDate);
-            IQueryable<ArchivedScanEntity> archivedQuery = _db.ArchivedScans.Where(a => a.ScanDate == targetDate);
+            IQueryable<ArchivedScanEntity> archivedQuery = _db.ArchivedScans.Where(a => a.ScanDate == targetDate && !a.IsDeleted);
 
             if (!string.IsNullOrWhiteSpace(location))
             {
@@ -551,10 +580,11 @@ namespace TenkoServer.Controllers
         }
 
         /// <summary>
-        /// アクティブセッションの点呼履歴を管理パネルから削除する。
+        /// アクティブセッションの点呼履歴を管理パネルから削除する (論理削除)。
         /// - ScanIds 指定時: 該当レコードのみ削除
         /// - Date 指定時: その日の全レコードを削除
         /// - AllTime = true: 全期間のレコードを削除
+        /// データ自体は削除フラグ付きで保持され、scans/restore から復元できる。
         /// アーカイブ済みデータは対象外 (sessions 系 API で管理)。
         /// </summary>
         [HttpPost("scans/delete")]
@@ -571,6 +601,7 @@ namespace TenkoServer.Controllers
                 });
             }
 
+            // クエリフィルタにより既に論理削除済みのレコードは対象外 -> 冪等
             IQueryable<ScanEntity> query = _db.Scans;
 
             if (request.ScanIds != null && request.ScanIds.Count > 0)
@@ -588,16 +619,70 @@ namespace TenkoServer.Controllers
 
             if (targets.Count > 0)
             {
-                _db.Scans.RemoveRange(targets);
+                DateTime deletedAt = DateTime.UtcNow;
+                foreach (var scan in targets)
+                {
+                    scan.IsDeleted = true;
+                    scan.DeletedAt = deletedAt;
+                    scan.DeletedByClientId = "admin-panel";
+                }
                 await _db.SaveChangesAsync();
-                _logger.LogWarning("Deleted {DeletedCount} active scan record(s) from admin panel.", targets.Count);
+                _logger.LogWarning("Soft-deleted {DeletedCount} active scan record(s) from admin panel.", targets.Count);
             }
 
             return Ok(new DeleteResponseDto
             {
                 Success = true,
                 DeletedCount = targets.Count,
-                Message = $"{targets.Count} 件の点呼履歴を削除しました。"
+                Message = $"{targets.Count} 件の点呼履歴を削除しました。（データは保持され、「削除済みを表示」から復元できます）"
+            });
+        }
+
+        /// <summary>
+        /// 論理削除された点呼履歴を復元する (削除の取り消し)。
+        /// 復元すると重複チェック・未点呼判定・エクスポートの対象に戻る。
+        /// </summary>
+        [HttpPost("scans/restore")]
+        public async Task<ActionResult<RestoreSessionResponseDto>> RestoreScans([FromBody] RestoreScansRequestDto? request)
+        {
+            if (request == null || request.ScanIds == null || request.ScanIds.Count == 0)
+            {
+                return BadRequest(new RestoreSessionResponseDto
+                {
+                    Success = false,
+                    RestoredCount = 0,
+                    Message = "復元対象の ScanId が指定されていません。"
+                });
+            }
+
+            var ids = request.ScanIds.ToHashSet();
+            var targets = await _db.Scans
+                .IgnoreQueryFilters()
+                .Where(s => s.IsDeleted && ids.Contains(s.Id))
+                .ToListAsync();
+
+            foreach (var scan in targets)
+            {
+                scan.IsDeleted = false;
+                scan.DeletedAt = null;
+                scan.DeletedByClientId = string.Empty;
+            }
+
+            if (targets.Count > 0)
+            {
+                await _db.SaveChangesAsync();
+                _logger.LogInformation("Restored {RestoredCount} soft-deleted scan record(s) from admin panel.", targets.Count);
+            }
+
+            int notFound = request.ScanIds.Count - targets.Count;
+
+            return Ok(new RestoreSessionResponseDto
+            {
+                Success = true,
+                RestoredCount = targets.Count,
+                Message = notFound > 0
+                    ? $"{targets.Count} 件を復元しました（{notFound} 件は見つからないか既に有効です）。"
+                    : $"{targets.Count} 件の点呼履歴を復元しました。"
             });
         }
 

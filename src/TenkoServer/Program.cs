@@ -123,27 +123,8 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<TenkoDbContext>();
     db.Database.EnsureCreated();
 
-    // EnsureCreated は既存 DB のスキーマを更新しないため、
-    // アーカイブテーブルが無い旧 DB 向けに冪等な CREATE 文を実行する
-    db.Database.ExecuteSqlRaw("""
-        CREATE TABLE IF NOT EXISTS ArchivedScans (
-            Id TEXT NOT NULL CONSTRAINT PK_ArchivedScans PRIMARY KEY,
-            Timestamp TEXT NOT NULL,
-            Barcode TEXT NOT NULL,
-            Last5 INTEGER NOT NULL,
-            StudentName TEXT NOT NULL,
-            StudentCode TEXT NOT NULL,
-            Location TEXT NOT NULL,
-            ClientId TEXT NOT NULL,
-            ReceivedAt TEXT NOT NULL,
-            ScanDate TEXT NOT NULL,
-            SessionId TEXT NOT NULL,
-            SessionLabel TEXT NULL,
-            ClosedAt TEXT NOT NULL
-        )
-        """);
-    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ArchivedScans_SessionId ON ArchivedScans (SessionId);");
-    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ArchivedScans_ScanDate ON ArchivedScans (ScanDate);");
+    // EnsureCreated は既存 DB のスキーマを更新しないため、旧 DB への冪等な移行を実行する
+    DatabaseMigrator.Migrate(db);
 }
 
 app.UseForwardedHeaders();

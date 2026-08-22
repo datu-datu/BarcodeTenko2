@@ -95,10 +95,15 @@
         <section id="scansTab" class="tab-content content-card">
             <div class="card-header-flex">
                 <div>
-                    <h2 style="font-size: 16px;">スキャン履歴 (<span id="scansCountBadge">0</span>件)</h2>
+                    <h2 style="font-size: 16px;">スキャン履歴 (<span id="scansCountBadge">0</span>件) <span id="deletedDiffStat" class="diffstat"></span></h2>
                     <div style="font-size: 12px; color: var(--text-muted);">※ 現在のセッションの点呼データを表示します（最新が上）。締め済みデータは「セッション履歴」タブから</div>
+                    <label style="font-size: 12px; color: var(--text-muted); cursor: pointer; margin-top: 4px; display: inline-flex; align-items: center; gap: 6px;">
+                        <input type="checkbox" id="showDeletedCheck" checked>
+                        削除済みを表示（取り消し線で表示、復元できます）
+                    </label>
                 </div>
                 <div style="display: flex; gap: 8px;">
+                    <button id="restoreSelectedScansBtn" class="btn btn-outline btn-sm" disabled>選択した行を復元</button>
                     <button id="deleteSelectedScansBtn" class="btn btn-danger btn-sm" disabled>選択した行を削除</button>
                     <button id="deleteDayScansBtn" class="btn btn-danger btn-sm">この日の履歴を全削除</button>
                 </div>

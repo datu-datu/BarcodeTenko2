@@ -10,6 +10,10 @@ namespace TenkoServer.Models.DTOs
         public int TotalMasterStudents { get; set; }
         public int UnverifiedStudentsCount { get; set; }
         public double CompletionRatePercentage { get; set; }
+
+        /// <summary>論理削除済みの本日件数 (削除フラグを含む総件数から有効件数を引いた値)</summary>
+        public int DeletedScansToday { get; set; }
+
         public Dictionary<string, int> ScansByLocation { get; set; } = new();
         public List<ScanItemDto> RecentScans { get; set; } = new();
     }
@@ -82,7 +86,12 @@ namespace TenkoServer.Models.DTOs
         public string SessionId { get; set; } = string.Empty;
         public string? Label { get; set; }
         public DateTime ClosedAt { get; set; }
+
+        /// <summary>アーカイブ総件数 (論理削除済みを含む)</summary>
         public int ScanCount { get; set; }
+
+        /// <summary>うち論理削除済みの件数</summary>
+        public int DeletedCount { get; set; }
     }
 
     /// <summary>点呼データ受付設定</summary>
@@ -101,12 +110,19 @@ namespace TenkoServer.Models.DTOs
     /// 履歴 (アクティブスキャン) 削除リクエスト。
     /// ScanIds 指定時は該当レコードのみ、未指定時に Date 指定でその日の全件、
     /// AllTime = true で全期間を削除する。
+    /// 削除は論理削除 (フラグ設定) のみでデータは保持される。
     /// </summary>
     public class DeleteHistoryRequestDto
     {
         public List<string>? ScanIds { get; set; }
         public string? Date { get; set; }
         public bool AllTime { get; set; }
+    }
+
+    /// <summary>論理削除済み点呼履歴の復元リクエスト</summary>
+    public class RestoreScansRequestDto
+    {
+        public List<string> ScanIds { get; set; } = new();
     }
 
     /// <summary>削除系操作の共通レスポンス</summary>

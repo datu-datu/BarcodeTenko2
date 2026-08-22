@@ -37,5 +37,19 @@ namespace TenkoServer.Data.Models
         /// </summary>
         [MaxLength(10)]
         public string ScanDate { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 論理削除フラグ。
+        /// 重複チェック・未点呼判定・エクスポート等からは除外されるが、
+        /// データ自体は管理パネル向けに保持される (git diff 風の削除表示用)。
+        /// </summary>
+        public bool IsDeleted { get; set; }
+
+        /// <summary>論理削除日時 (UTC)。未削除時は null</summary>
+        public DateTime? DeletedAt { get; set; }
+
+        /// <summary>削除を要求したクライアント</summary>
+        [MaxLength(50)]
+        public string DeletedByClientId { get; set; } = string.Empty;
     }
 }

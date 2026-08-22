@@ -23,6 +23,12 @@ namespace TenkoServer.Data
                 entity.HasIndex(e => new { e.ScanDate, e.Last5 });
                 entity.HasIndex(e => e.Timestamp);
                 entity.HasIndex(e => e.Location);
+
+                // 論理削除済みレコードを全クエリから除外する。
+                // これにより重複チェック・未点呼判定・エクスポート等が自動的に削除済みを無視する。
+                // 管理パネル表示時は IgnoreQueryFilters() で全件取得する。
+                // (EF Core の FindAsync はクエリフィルタを適用しない点に注意)
+                entity.HasQueryFilter(e => !e.IsDeleted);
             });
 
             modelBuilder.Entity<ArchivedScanEntity>(entity =>

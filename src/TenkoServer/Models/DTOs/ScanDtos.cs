@@ -13,6 +13,15 @@ namespace TenkoServer.Models.DTOs
         public string? StudentCode { get; set; }
         public string Location { get; set; } = string.Empty;
         public bool NotificationSent { get; set; }
+
+        /// <summary>論理削除済みかどうか (管理パネルの削除表示用)</summary>
+        public bool IsDeleted { get; set; }
+
+        /// <summary>論理削除日時 (UTC)。未削除時は null</summary>
+        public DateTime? DeletedAt { get; set; }
+
+        /// <summary>削除を要求したクライアント</summary>
+        public string? DeletedByClientId { get; set; }
     }
 
     public class ScanBatchRequestDto

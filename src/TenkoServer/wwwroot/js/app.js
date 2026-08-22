@@ -6,6 +6,7 @@ let currentTab = 'scansTab';
 let autoRefreshTimer = null;
 let notificationSettings = { isAutoSend: true, isWebhookConfigured: false };
 let scanAcceptance = { isAcceptingScans: true };
+let scanListCache = []; // 論理削除済み行を含むスキャン履歴のキャッシュ
 
 /**
  * ローカルタイムゾーン基準の今日の日付 (yyyy-MM-dd) を取得する
@@ -127,13 +128,25 @@ function setupEventListeners() {
         deleteDayBtn.addEventListener('click', deleteDayScans);
     }
 
+    // 復元ボタン (論理削除の取り消し)
+    const restoreSelectedBtn = document.getElementById('restoreSelectedScansBtn');
+    if (restoreSelectedBtn) {
+        restoreSelectedBtn.addEventListener('click', restoreSelectedScans);
+    }
+
+    // 削除済み表示トグル
+    const showDeletedCheck = document.getElementById('showDeletedCheck');
+    if (showDeletedCheck) {
+        showDeletedCheck.addEventListener('change', renderScansTable);
+    }
+
     // 全選択チェックボックス
     const selectAllCheck = document.getElementById('selectAllScansCheck');
     if (selectAllCheck) {
         selectAllCheck.addEventListener('change', () => {
             const checked = selectAllCheck.checked;
-            document.querySelectorAll('.scan-row-check').forEach(cb => { cb.checked = checked; });
-            updateDeleteSelectedButton();
+            document.querySelectorAll('.scan-row-check:not(:disabled)').forEach(cb => { cb.checked = checked; });
+            updateActionButtonStates();
         });
     }
 
@@ -316,7 +329,7 @@ async function toggleScanAcceptance() {
 }
 
 /**
- * チェックされた行のスキャン履歴を削除する
+ * チェックされた行のスキャン履歴を削除する (論理削除)
  */
 async function deleteSelectedScans() {
     const ids = Array.from(document.querySelectorAll('.scan-row-check:checked'))
@@ -327,12 +340,73 @@ async function deleteSelectedScans() {
         return;
     }
 
-    if (!confirm(`選択した ${ids.length} 件の点呼履歴を削除しますか？\nこの操作は取り消せません（アーカイブ済みデータには影響しません）。`)) {
+    if (!confirm(`選択した ${ids.length} 件の点呼履歴を削除しますか？\n削除済みとして記録され、一覧から復元できます（アーカイブ済みデータには影響しません）。`)) {
         return;
     }
 
+    await postScanDelete({ scanIds: ids });
+}
+
+/**
+ * 選択中の日付のスキャン履歴を全件削除する (論理削除)
+ */
+async function deleteDayScans() {
+    const date = document.getElementById('dateSelect').value;
+    if (!date) return;
+
+    if (!confirm(`${date} の点呼履歴を全件削除しますか？\n削除済みとして記録され、一覧から復元できます（アーカイブ済みデータには影響しません）。`)) {
+        return;
+    }
+
+    await postScanDelete({ date: date });
+}
+
+async function postScanDelete(body) {
     try {
         const res = await fetch('/api/v1/dashboard/scans/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(data.message || '削除に失敗しました。');
+            return;
+        }
+
+        document.getElementById('selectAllScansCheck').checked = false;
+        if (!document.getElementById('showDeletedCheck').checked) {
+            // 削除済み非表示モードだと消えたように見えるため、表示モードへ自動切替
+            document.getElementById('showDeletedCheck').checked = true;
+        }
+        await refreshAllData();
+    } catch (err) {
+        alert('サーバーとの通信に失敗しました。');
+    }
+}
+
+/**
+ * チェックされた論理削除済み行を復元する
+ */
+async function restoreSelectedScans() {
+    const deletedIds = new Set(scanListCache.filter(r => r.isDeleted).map(r => String(r.id)));
+    const ids = Array.from(document.querySelectorAll('.scan-row-check:checked'))
+        .map(cb => cb.getAttribute('data-scan-id'))
+        .filter(id => deletedIds.has(String(id)));
+
+    if (ids.length === 0) {
+        alert('復元する行（削除済みの行）を選択してください。');
+        return;
+    }
+
+    await restoreScansByIds(ids);
+}
+
+async function restoreScansByIds(ids) {
+    try {
+        const res = await fetch('/api/v1/dashboard/scans/restore', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ scanIds: ids })
@@ -341,44 +415,10 @@ async function deleteSelectedScans() {
         if (res.status === 401) { window.location.href = '/login.html'; return; }
         const data = await res.json();
         if (!res.ok || !data.success) {
-            alert(data.message || '削除に失敗しました。');
+            alert(data.message || '復元に失敗しました。');
             return;
         }
 
-        alert(data.message);
-        document.getElementById('selectAllScansCheck').checked = false;
-        await refreshAllData();
-    } catch (err) {
-        alert('サーバーとの通信に失敗しました。');
-    }
-}
-
-/**
- * 選択中の日付のスキャン履歴を全件削除する
- */
-async function deleteDayScans() {
-    const date = document.getElementById('dateSelect').value;
-    if (!date) return;
-
-    if (!confirm(`${date} の点呼履歴を全件削除しますか？\nこの操作は取り消せません（アーカイブ済みデータには影響しません）。`)) {
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/v1/dashboard/scans/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: date })
-        });
-
-        if (res.status === 401) { window.location.href = '/login.html'; return; }
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-            alert(data.message || '削除に失敗しました。');
-            return;
-        }
-
-        alert(data.message);
         document.getElementById('selectAllScansCheck').checked = false;
         await refreshAllData();
     } catch (err) {
@@ -564,6 +604,11 @@ async function loadSessions() {
     for (const s of sessions) {
         const closedAtStr = s.closedAt ? new Date(s.closedAt).toLocaleString('ja-JP') : '-';
         const sessionLabel = s.label || '(名称未設定)';
+        const deletedCount = s.deletedCount || 0;
+        const countCell = deletedCount > 0
+            ? `${escapeHtml(String(s.scanCount))} 件 <span class="diffstat-del">(うち削除 ${escapeHtml(String(deletedCount))} 件)</span>`
+            : `${escapeHtml(String(s.scanCount))} 件`;
+        // セッション単位のダウンロードは削除済みレコードを含まない
         const downloadCell = `
             <button class="btn btn-xs btn-outline session-dl-btn" data-session-id="${escapeHtml(s.sessionId)}" data-format="csv">CSV</button>
             <button class="btn btn-xs btn-outline session-dl-btn" data-session-id="${escapeHtml(s.sessionId)}" data-format="bin">BIN</button>
@@ -576,7 +621,7 @@ async function loadSessions() {
             <tr>
                 <td class="font-mono">${escapeHtml(closedAtStr)}</td>
                 <td><span class="badge badge-info">${escapeHtml(sessionLabel)}</span></td>
-                <td class="font-mono">${escapeHtml(String(s.scanCount))} 件</td>
+                <td class="font-mono">${countCell}</td>
                 <td>${downloadCell}</td>
                 <td>${manageCell}</td>
             </tr>
@@ -670,33 +715,66 @@ async function loadScans() {
     if (res.status === 401) { window.location.href = '/login.html'; return; }
     if (!res.ok) return;
 
-    const list = await res.json();
-    const tbody = document.getElementById('scansTableBody');
-    document.getElementById('scansCountBadge').innerText = list.length;
+    scanListCache = await res.json();
+    renderScansTable();
+}
 
-    if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">点呼データはありません</td></tr>';
-        updateDeleteSelectedButton();
+/**
+ * スキャン履歴テーブルを描画する。
+ * 論理削除済み行は git diff の削除行風に赤背景 + 取り消し線で表示し、
+ * 復元ボタンを併設する。「削除済みを表示」チェックで表示を切り替えられる。
+ */
+function renderScansTable() {
+    const tbody = document.getElementById('scansTableBody');
+    const showDeleted = document.getElementById('showDeletedCheck').checked;
+
+    const activeCount = scanListCache.filter(r => !r.isDeleted).length;
+    const deletedCount = scanListCache.length - activeCount;
+
+    // diffstat (git diff 風の削除件数表示)
+    const diffstat = document.getElementById('deletedDiffStat');
+    if (diffstat) {
+        diffstat.innerHTML = deletedCount > 0 ? `<span class="diffstat-del">−${deletedCount} 削除</span>` : '';
+    }
+
+    const visible = showDeleted ? scanListCache : scanListCache.filter(r => !r.isDeleted);
+    document.getElementById('scansCountBadge').innerText = activeCount;
+
+    if (visible.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">${deletedCount > 0 && !showDeleted ? `点呼データはありません（削除済み ${deletedCount} 件を非表示中）` : '点呼データはありません'}</td></tr>`;
+        updateActionButtonStates();
         return;
     }
 
     let html = '';
-    for (const r of list) {
+    for (const r of visible) {
+        const deleted = !!r.isDeleted;
         const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
-        const notificationCell = r.notificationSent
-            ? '<span class="badge badge-success">送信済</span>'
-            : `<span class="badge badge-muted">未送信</span> <button class="btn btn-xs btn-outline send-single-btn" data-scan-id="${escapeHtml(r.id)}">送信</button>`;
+        const rowClass = deleted ? ' class="row-deleted"' : '';
+        const main = (content) => deleted ? `<span class="cell-main">${content}</span>` : content;
+
+        // 削除済み行のチェックは「選択して復元」用。削除/復元ボタンは各自の対象のみカウントする
+        const checkboxCell = `<input type="checkbox" class="scan-row-check" data-scan-id="${escapeHtml(r.id)}">`;
+
+        let notificationCell;
+        if (deleted) {
+            notificationCell = '<span class="badge badge-muted">削除済み</span>';
+        } else if (r.notificationSent) {
+            notificationCell = '<span class="badge badge-success">送信済</span>';
+        } else {
+            notificationCell = `<span class="badge badge-muted">未送信</span> <button class="btn btn-xs btn-outline send-single-btn" data-scan-id="${escapeHtml(r.id)}">送信</button>`;
+        }
 
         html += `
-            <tr>
-                <td><input type="checkbox" class="scan-row-check" data-scan-id="${escapeHtml(r.id)}"></td>
-                <td class="font-mono">${escapeHtml(timeStr)}</td>
-                <td class="font-mono">${escapeHtml(String(r.last5).padStart(5, '0'))}</td>
-                <td><span class="badge badge-info">${escapeHtml(r.studentCode || '-')}</span></td>
-                <td><strong>${escapeHtml(r.studentName || '未登録')}</strong></td>
-                <td><span class="badge badge-success">${escapeHtml(r.location || '未設定')}</span></td>
-                <td class="font-mono" style="color: var(--text-muted);">${escapeHtml(r.barcode)}</td>
-                <td>${notificationCell}</td>
+            <tr${rowClass}>
+                <td>${checkboxCell}</td>
+                <td class="font-mono">${main(escapeHtml(timeStr))}</td>
+                <td class="font-mono">${main(escapeHtml(String(r.last5).padStart(5, '0')))}</td>
+                <td>${main(`<span class="badge badge-info">${escapeHtml(r.studentCode || '-')}</span>`)}</td>
+                <td><strong>${main(escapeHtml(r.studentName || '未登録'))}</strong></td>
+                <td>${main(`<span class="badge badge-success">${escapeHtml(r.location || '未設定')}</span>`)}</td>
+                <td class="font-mono" style="color: var(--text-muted);">${main(escapeHtml(r.barcode))}</td>
+                <td>${notificationCell}${deleted ? renderRestoreButton(r.id, r.deletedAt, r.deletedByClientId) : ''}</td>
             </tr>
         `;
     }
@@ -712,19 +790,47 @@ async function loadScans() {
         });
     });
 
-    // 行チェックボックスのイベントバインド
-    tbody.querySelectorAll('.scan-row-check').forEach(cb => {
-        cb.addEventListener('change', updateDeleteSelectedButton);
+    // 個別復元ボタンのイベントバインド
+    tbody.querySelectorAll('.restore-row-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const scanId = e.currentTarget.getAttribute('data-scan-id');
+            if (scanId) restoreScansByIds([scanId]);
+        });
     });
-    updateDeleteSelectedButton();
+
+    // 行チェックボックスのイベントバインド
+    tbody.querySelectorAll('.scan-row-check:not(:disabled)').forEach(cb => {
+        cb.addEventListener('change', updateActionButtonStates);
+    });
+    updateActionButtonStates();
 }
 
-function updateDeleteSelectedButton() {
-    const btn = document.getElementById('deleteSelectedScansBtn');
-    if (!btn) return;
-    const checkedCount = document.querySelectorAll('.scan-row-check:checked').length;
-    btn.disabled = checkedCount === 0;
-    btn.innerText = checkedCount > 0 ? `選択した行を削除 (${checkedCount})` : '選択した行を削除';
+/**
+ * 論理削除済み行の復元ボタン HTML を生成する (title に削除日時と要求元を表示)
+ */
+function renderRestoreButton(id, deletedAt, deletedByClientId) {
+    const title = `削除: ${deletedAt ? new Date(deletedAt).toLocaleString('ja-JP') : '-'} / 元: ${deletedByClientId || '-'}`;
+    return ` <button class="btn btn-xs btn-outline restore-row-btn" data-scan-id="${escapeHtml(id)}" title="${escapeHtml(title)}">復元</button>`;
+}
+
+function updateActionButtonStates() {
+    const deleteBtn = document.getElementById('deleteSelectedScansBtn');
+    const restoreBtn = document.getElementById('restoreSelectedScansBtn');
+
+    const deletedIds = new Set(scanListCache.filter(r => r.isDeleted).map(r => String(r.id)));
+    const checkedIds = Array.from(document.querySelectorAll('.scan-row-check:checked'))
+        .map(cb => cb.getAttribute('data-scan-id'));
+    const deleteCount = checkedIds.filter(id => !deletedIds.has(String(id))).length;
+    const restoreCount = checkedIds.filter(id => deletedIds.has(String(id))).length;
+
+    if (deleteBtn) {
+        deleteBtn.disabled = deleteCount === 0;
+        deleteBtn.innerText = deleteCount > 0 ? `選択した行を削除 (${deleteCount})` : '選択した行を削除';
+    }
+    if (restoreBtn) {
+        restoreBtn.disabled = restoreCount === 0;
+        restoreBtn.innerText = restoreCount > 0 ? `選択した行を復元 (${restoreCount})` : '選択した行を復元';
+    }
 }
 
 async function loadUnverified() {

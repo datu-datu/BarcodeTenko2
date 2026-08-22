@@ -175,7 +175,7 @@ namespace Tenko.Tests
         }
 
         [Fact]
-        public async Task ScansController_DeleteScans_RemovesOnlyMatchingClientRecords()
+        public async Task ScansController_DeleteScans_SoftDeletesOnlyMatchingClientRecords()
         {
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
@@ -209,8 +209,61 @@ namespace Tenko.Tests
             // 自端末のレコードのみ削除。他端末のレコードと存在しない Id は no-op
             Assert.Equal(1, response.DeletedCount);
 
-            Assert.Null(await _db.Scans.FindAsync("own-1"));
-            Assert.NotNull(await _db.Scans.FindAsync("other-1"));
+            // 論理削除: データは残り、フラグのみ設定される (FindAsync はクエリフィルタを適用しない)
+            var own = await _db.Scans.FindAsync("own-1");
+            Assert.NotNull(own);
+            Assert.True(own!.IsDeleted);
+            Assert.NotNull(own.DeletedAt);
+            Assert.Equal("terminal-A", own.DeletedByClientId);
+
+            var other = await _db.Scans.FindAsync("other-1");
+            Assert.NotNull(other);
+            Assert.False(other!.IsDeleted);
+
+            // 通常クエリからは除外される
+            Assert.Equal(1, await _db.Scans.CountAsync());
+        }
+
+        [Fact]
+        public async Task ScansController_AfterSoftDelete_RescanSameStudentIsAccepted()
+        {
+            var queue = new NotificationQueue();
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+
+            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
+
+            DateTime ts = new DateTime(2026, 8, 22, 9, 0, 0);
+            _db.Scans.Add(new ScanEntity
+            {
+                Id = "mistake-1", Timestamp = ts, Barcode = "21021", Last5 = 21021,
+                Location = "2棟2階", ClientId = "terminal-A", ReceivedAt = DateTime.UtcNow, ScanDate = "2026-08-22"
+            });
+            await _db.SaveChangesAsync();
+
+            // 誤スキャンを論理削除
+            await controller.DeleteScans(new ScanDeleteRequestDto
+            {
+                ClientId = "terminal-A",
+                Ids = new List<string> { "mistake-1" }
+            });
+
+            // 削除後の正規打刻: 重複チェックが削除済み行を無視するため受理される
+            var r = await controller.PostScans(new ScanBatchRequestDto
+            {
+                ClientId = "terminal-A",
+                Records = new List<ScanItemDto>
+                {
+                    new ScanItemDto
+                    {
+                        Id = "correct-1", Barcode = "21021", Last5 = 21021,
+                        Location = "2棟2階", Timestamp = ts.AddMinutes(10)
+                    }
+                }
+            });
+
+            var resp = Assert.IsType<ScanBatchResponseDto>(Assert.IsType<OkObjectResult>(r.Result).Value);
+            Assert.Equal(1, resp.AcceptedCount);
+            Assert.Equal(0, resp.DuplicateCount);
         }
 
         [Fact]
@@ -470,7 +523,7 @@ namespace Tenko.Tests
         }
 
         [Fact]
-        public async Task DashboardController_DeleteHistory_RemovesActiveScansOnly()
+        public async Task DashboardController_DeleteHistory_SoftDeletesActiveScansOnly()
         {
             var studentMaster = new StudentMasterService(
                 Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
@@ -501,12 +554,23 @@ namespace Tenko.Tests
             var badResult = await dashboard.DeleteHistory(new DeleteHistoryRequestDto());
             Assert.IsType<BadRequestObjectResult>(badResult.Result);
 
-            // ID 指定削除
+            // ID 指定削除 (論理削除: フラグ設定のみでデータは保持)
             var byIds = await dashboard.DeleteHistory(new DeleteHistoryRequestDto { ScanIds = new List<string> { "del-1" } });
             var byIdsResp = Assert.IsType<DeleteResponseDto>(Assert.IsType<OkObjectResult>(byIds.Result).Value);
             Assert.Equal(1, byIdsResp.DeletedCount);
-            Assert.Null(await _db.Scans.FindAsync("del-1"));
-            Assert.NotNull(await _db.Scans.FindAsync("del-2"));
+
+            var deleted = await _db.Scans.FindAsync("del-1");
+            Assert.NotNull(deleted);
+            Assert.True(deleted!.IsDeleted);
+            Assert.Equal("admin-panel", deleted.DeletedByClientId);
+
+            // 通常クエリ・一覧 API からは除外される
+            Assert.Single(await _db.Scans.ToListAsync());
+            var scansList = Assert.IsType<List<ScanItemDto>>(
+                Assert.IsType<OkObjectResult>((await dashboard.GetScans("2026-08-21", null, null)).Result).Value);
+            var flagged = scansList.Single(s => s.Id == "del-1");
+            Assert.True(flagged.IsDeleted);
+            Assert.NotNull(flagged.DeletedAt);
 
             // 日付指定削除
             var byDate = await dashboard.DeleteHistory(new DeleteHistoryRequestDto { Date = "2026-08-22" });
@@ -516,6 +580,163 @@ namespace Tenko.Tests
 
             // アーカイブは影響を受けない
             Assert.Equal(1, await _db.ArchivedScans.CountAsync());
+        }
+
+        [Fact]
+        public async Task DashboardController_RestoreScans_ClearsDeleteFlag()
+        {
+            var studentMaster = new StudentMasterService(
+                Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+            var queue = new NotificationQueue();
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+
+            _db.Scans.Add(new ScanEntity
+            {
+                Id = "res-1", Timestamp = new DateTime(2026, 8, 21, 9, 0, 0), Barcode = "21021", Last5 = 21021,
+                Location = "2棟2階", ClientId = "terminal-A", ReceivedAt = DateTime.UtcNow, ScanDate = "2026-08-21",
+                IsDeleted = true, DeletedAt = DateTime.UtcNow, DeletedByClientId = "terminal-A"
+            });
+            await _db.SaveChangesAsync();
+
+            // 空リクエストは BadRequest
+            var bad = await dashboard.RestoreScans(new RestoreScansRequestDto());
+            Assert.IsType<BadRequestObjectResult>(bad.Result);
+
+            var result = await dashboard.RestoreScans(new RestoreScansRequestDto { ScanIds = new List<string> { "res-1", "missing-1" } });
+            var resp = Assert.IsType<RestoreSessionResponseDto>(Assert.IsType<OkObjectResult>(result.Result).Value);
+            Assert.True(resp.Success);
+            Assert.Equal(1, resp.RestoredCount);
+
+            var restored = await _db.Scans.FindAsync("res-1");
+            Assert.NotNull(restored);
+            Assert.False(restored!.IsDeleted);
+            Assert.Null(restored.DeletedAt);
+            Assert.Equal(string.Empty, restored.DeletedByClientId);
+
+            // 復元後は通常クエリの対象に戻る
+            Assert.Equal(1, await _db.Scans.CountAsync());
+        }
+
+        [Fact]
+        public async Task DashboardController_SessionClose_ArchivesSoftDeletedRowsWithFlag()
+        {
+            var studentMaster = new StudentMasterService(
+                Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+            var queue = new NotificationQueue();
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+
+            DateTime ts = new DateTime(2026, 8, 21, 9, 0, 0);
+            _db.Scans.AddRange(
+                new ScanEntity
+                {
+                    Id = "active-1", Timestamp = ts, Barcode = "21021", Last5 = 21021,
+                    Location = "2棟2階", ReceivedAt = DateTime.UtcNow, ScanDate = "2026-08-21"
+                },
+                new ScanEntity
+                {
+                    Id = "deleted-1", Timestamp = ts.AddMinutes(5), Barcode = "23213", Last5 = 23213,
+                    Location = "2棟2階", ClientId = "terminal-A", ReceivedAt = DateTime.UtcNow, ScanDate = "2026-08-21",
+                    IsDeleted = true, DeletedAt = ts.AddMinutes(6), DeletedByClientId = "terminal-A"
+                });
+            await _db.SaveChangesAsync();
+
+            var close = await dashboard.CloseSession(new CloseSessionRequestDto { Label = "午前" });
+            var closeResp = Assert.IsType<CloseSessionResponseDto>(Assert.IsType<OkObjectResult>(close.Result).Value);
+
+            // 削除済み行も含めて全件アーカイブされ、Scans に取り残されない
+            Assert.Equal(2, closeResp.MovedCount);
+            Assert.Equal(0, await _db.Scans.IgnoreQueryFilters().CountAsync());
+
+            var archivedDeleted = await _db.ArchivedScans.SingleAsync(a => a.Id == "deleted-1");
+            Assert.True(archivedDeleted.IsDeleted);
+            Assert.NotNull(archivedDeleted.DeletedAt);
+            Assert.Equal("terminal-A", archivedDeleted.DeletedByClientId);
+            Assert.False((await _db.ArchivedScans.SingleAsync(a => a.Id == "active-1")).IsDeleted);
+
+            // セッション一覧は削除済み件数を報告する
+            var sessions = Assert.IsType<List<SessionSummaryDto>>(
+                Assert.IsType<OkObjectResult>((await dashboard.GetSessions()).Result).Value);
+            var summary = sessions.Single(s => s.SessionId == closeResp.SessionId);
+            Assert.Equal(2, summary.ScanCount);
+            Assert.Equal(1, summary.DeletedCount);
+
+            // エクスポートには削除済み行が含まれない
+            var binFile = Assert.IsType<FileContentResult>(
+                await dashboard.ExportBin(null, null, closeResp.SessionId));
+            Assert.Equal(2, binFile.FileContents.Length); // 削除済みを除く 1 レコード分
+            Assert.Equal(21021, BitConverter.ToUInt16(binFile.FileContents, 0));
+        }
+
+        [Fact]
+        public void DatabaseMigrator_AddsSoftDeleteColumnsToLegacyDatabase()
+        {
+            string dbPath = Path.Combine(Path.GetTempPath(), "TenkoLegacy_" + Guid.NewGuid().ToString("N") + ".db");
+            var options = new DbContextOptionsBuilder<TenkoDbContext>()
+                .UseSqlite($"Data Source={dbPath}")
+                .Options;
+
+            try
+            {
+                // ソフトデリート列が無い旧スキーマの DB を再現する。
+                // EnsureCreated はテーブルが存在する既存 DB に対しては何もしない。
+                using (var legacy = new TenkoDbContext(options))
+                {
+                    legacy.Database.ExecuteSqlRaw("""
+                        CREATE TABLE Scans (
+                            Id TEXT NOT NULL CONSTRAINT PK_Scans PRIMARY KEY,
+                            Timestamp TEXT NOT NULL,
+                            Barcode TEXT NOT NULL,
+                            Last5 INTEGER NOT NULL,
+                            StudentName TEXT NOT NULL,
+                            StudentCode TEXT NOT NULL,
+                            Location TEXT NOT NULL,
+                            ClientId TEXT NOT NULL,
+                            ReceivedAt TEXT NOT NULL,
+                            ScanDate TEXT NOT NULL
+                        )
+                        """);
+                    legacy.Database.EnsureCreated();
+
+                    // 旧 DB に既に存在するレコードを再現 (EF モデルの新列はまだ無いので生 SQL)
+                    legacy.Database.ExecuteSqlRaw(
+                        "INSERT INTO Scans (Id, Timestamp, Barcode, Last5, StudentName, StudentCode, Location, ClientId, ReceivedAt, ScanDate) " +
+                        "VALUES ('legacy-1', '2026-08-21 09:00:00', '21021', 21021, '', '', '2棟2階', '', '2026-08-21 09:00:00', '2026-08-21')");
+                }
+
+                using (var db = new TenkoDbContext(options))
+                {
+                    DatabaseMigrator.Migrate(db);
+
+                    bool HasColumn(string column)
+                    {
+                        var connection = db.Database.GetDbConnection();
+                        if (connection.State != System.Data.ConnectionState.Open) connection.Open();
+                        using var command = connection.CreateCommand();
+                        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Scans') WHERE name = '" + column + "'";
+                        return Convert.ToInt64(command.ExecuteScalar()) > 0;
+                    }
+
+                    Assert.True(HasColumn("IsDeleted"));
+                    Assert.True(HasColumn("DeletedAt"));
+                    Assert.True(HasColumn("DeletedByClientId"));
+
+                    // 移行済み旧レコードは既定値 (未削除) で読み取れる。2 回実行しても冪等
+                    DatabaseMigrator.Migrate(db);
+                    var row = db.Scans.Single(s => s.Id == "legacy-1");
+                    Assert.False(row.IsDeleted);
+                    Assert.Null(row.DeletedAt);
+
+                    // 手動で開いた接続を閉じないとファイル削除時にロックされる
+                    db.Database.CloseConnection();
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) File.Delete(dbPath);
+            }
         }
 
         [Fact]
