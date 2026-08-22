@@ -12,14 +12,14 @@ using Xunit;
 
 namespace Tenko.Tests;
 
-public class MockDialogService : IDialogService
+public class MockDialogService : Tenko.Native.Services.IDialogService, Tenko.Lite.Services.IDialogService
 {
     public bool ReturnValue { get; set; } = true;
     public bool Confirm(string message, string title, MessageBoxImage icon = MessageBoxImage.Question) => ReturnValue;
     public void ShowMessage(string message, string title = "情報", MessageBoxImage icon = MessageBoxImage.Information) { }
 }
 
-public class MockClockService : IClockService
+public class MockClockService : Tenko.Native.Services.IClockService, Tenko.Lite.Services.IClockService
 {
     public DateTime Now { get; set; } = new DateTime(2026, 8, 22, 10, 0, 0);
     public event Action<DateTime>? OnTick;
@@ -401,5 +401,57 @@ public class TenkoTests : IDisposable
         Assert.Contains("2棟2階", locations);
         Assert.Contains("第一体育館前", locations);
         Assert.Contains("本部横", locations);
+    }
+
+    [Fact]
+    public void TenkoLite_ScanProcessorAndViewModel_OperatesWithoutStudentInfo()
+    {
+        var storage = new Tenko.Lite.Services.StorageService();
+        var historyService = new Tenko.Lite.Services.HistoryService(storage);
+        var scanFileService = new Tenko.Lite.Services.ScanFileService(storage);
+        var settingsService = new Tenko.Lite.Services.SettingsService(storage);
+        var notificationService = new Tenko.Lite.Services.NotificationService();
+        var clockService = new MockClockService();
+        var exportService = new Tenko.Lite.Services.ExportService();
+        var dialogService = new MockDialogService { ReturnValue = true };
+
+        var processor = new Tenko.Lite.Services.ScanProcessor(historyService, scanFileService);
+
+        var vm = new Tenko.Lite.ViewModels.MainViewModel(
+            processor,
+            settingsService,
+            notificationService,
+            clockService,
+            exportService,
+            dialogService
+        );
+
+        string testLocation = "LiteTest_" + Guid.NewGuid().ToString("N")[..6];
+        vm.CurrentLocation = testLocation;
+        vm.StartSessionCommand.Execute(null);
+        Assert.False(vm.ShowInitialLocationModal);
+
+        // 5桁スキャン -> 氏名と出席番号は空のまま登録される
+        vm.ManualInput = "21021";
+        vm.SubmitCommand.Execute(null);
+        Assert.Single(vm.History);
+        var record = vm.History[0];
+        Assert.Equal(21021, record.Last5);
+        Assert.Empty(record.StudentName);
+        Assert.Empty(record.StudentCode);
+
+        // 検索 (学籍番号でヒット)
+        vm.SearchText = "21021";
+        Assert.Single(vm.History);
+
+        // 検索 (存在しない番号はフィルタされる)
+        vm.SearchText = "99999";
+        Assert.Empty(vm.History);
+        vm.ClearSearchCommand.Execute(null);
+        Assert.Single(vm.History);
+
+        // 削除
+        vm.DeleteRecordCommand.Execute(record);
+        Assert.Empty(vm.History);
     }
 }

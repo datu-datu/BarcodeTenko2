@@ -4,7 +4,10 @@ param(
     [string]$InputPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$OutputPath
+    [string]$OutputPath,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Namespace = "Tenko.Native.Generated"
 )
 
 Set-StrictMode -Version Latest
@@ -44,7 +47,7 @@ $content = @"
 using System;
 using System.Collections.Generic;
 
-namespace Tenko.Native.Generated
+namespace $Namespace
 {
     public static class EmbeddedLocations
     {

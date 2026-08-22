@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    
+    <!-- Size optimization -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="$(IntermediateOutputPath)Generated\EmbeddedLocations.g.cs"
+             AutoGen="true"
+             DesignTime="true"
+             Visible="false" />
+    <Compile Include="$(IntermediateOutputPath)Generated\EmbeddedServerConfig.g.cs"
+             AutoGen="true"
+             DesignTime="true"
+             Visible="false" />
+  </ItemGroup>
+
+  <Target Name="GenerateEmbeddedLocations" BeforeTargets="BeforeCompile">
+    <PropertyGroup>
+      <LocationsJsonPath>$(MSBuildProjectDirectory)\..\..\data\locations.json</LocationsJsonPath>
+      <EmbeddedLocationsSourcePath>$(IntermediateOutputPath)Generated\EmbeddedLocations.g.cs</EmbeddedLocationsSourcePath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(LocationsJsonPath)')"
+           Text="locations.json not found. Create data\locations.json before build." />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Generate-EmbeddedLocations.ps1&quot; -InputPath &quot;$(LocationsJsonPath)&quot; -OutputPath &quot;$(EmbeddedLocationsSourcePath)&quot; -Namespace &quot;Tenko.Lite.Generated&quot;"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="High"
+          StandardErrorImportance="High" />
+    <Warning Text="[GenerateEmbeddedLocations] locations.json loaded and embedded from $(LocationsJsonPath)." />
+  </Target>
+
+  <Target Name="GenerateEmbeddedServerConfig" BeforeTargets="BeforeCompile">
+    <PropertyGroup>
+      <ServerJsonPath>$(MSBuildProjectDirectory)\..\..\data\server.json</ServerJsonPath>
+      <EmbeddedServerConfigSourcePath>$(IntermediateOutputPath)Generated\EmbeddedServerConfig.g.cs</EmbeddedServerConfigSourcePath>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Generate-EmbeddedServerConfig.ps1&quot; -InputPath &quot;$(ServerJsonPath)&quot; -OutputPath &quot;$(EmbeddedServerConfigSourcePath)&quot; -Namespace &quot;Tenko.Lite.Generated&quot;"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="High"
+          StandardErrorImportance="High" />
+    <Warning Text="[GenerateEmbeddedServerConfig] server.json loaded and embedded from $(ServerJsonPath)." />
+  </Target>
+
+</Project>
