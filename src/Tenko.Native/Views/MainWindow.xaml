@@ -217,19 +217,25 @@
 
         <!-- Tenko Complete Modal -->
         <Border Grid.RowSpan="3" Background="#66000000" Visibility="{Binding ShowCompleteModal, Converter={StaticResource BoolToVis}}" Panel.ZIndex="2000">
-            <Border Background="{StaticResource BackgroundBrush}" Width="400" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="20" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+            <Border Background="{StaticResource BackgroundBrush}" Width="420" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="20" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                 <StackPanel>
                     <TextBlock Text="点呼完了" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
-                    <TextBlock Text="現在のデータを別名で保存し、履歴をリセットします。"
-                        TextWrapping="Wrap" Margin="0,0,0,15"/>
+                    <TextBlock Text="現在の点呼データを保存して画面をリセットします。&#x0a;区分名（例: 午前、午後）を入力して「保存して完了」を押してください。"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,0,0,10"/>
 
-                    <TextBlock Text="ファイル名の末尾（例：朝，午後）" FontSize="11" Margin="0,0,0,5"/>
+                    <Border Background="#F5F5F5" Padding="8,6" Margin="0,0,0,15" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <TextBlock Text="※ scans フォルダ内に ids_[場所]_[名前].bin として保存されます" 
+                                   FontSize="10" Foreground="#666666"/>
+                    </Border>
+
+                    <TextBlock Text="点呼の区分名（例：午前、午後）" FontSize="11" Margin="0,0,0,5"/>
                     <TextBox Style="{StaticResource ModernTextBox}" 
                             Text="{Binding CompleteRenameTargetName, UpdateSourceTrigger=PropertyChanged}"
                             Height="25" Margin="0,0,0,20"/>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="完了して退避" Command="{Binding CompleteRenameCommand}"
+                        <Button Content="保存して完了" Command="{Binding CompleteRenameCommand}"
                                 Style="{StaticResource ModernButton}" Margin="0,0,10,0"/>
                         <Button Content="キャンセル" Command="{Binding CloseCompleteModalCommand}"
                                 Style="{StaticResource ModernButton}"/>
