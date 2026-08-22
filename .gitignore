@@ -1,6 +1,7 @@
 ## [Visual Studio / .NET]
 bin/
 obj/
+dist/
 *.user
 *.userosscache
 *.sln
