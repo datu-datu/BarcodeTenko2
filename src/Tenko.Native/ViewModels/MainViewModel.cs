@@ -140,7 +140,7 @@ namespace Tenko.Native.ViewModels
 
             // 初期データ読み込み
             LoadHistory();
-            CheckBinFile();
+            // CheckBinFile();
 
             // 場所が未設定の場合は初回場所選択モーダルを表示
             if (!IsLocationSet)
@@ -338,21 +338,8 @@ namespace Tenko.Native.ViewModels
                             History.Insert(0, result.Record);
                         }
 
-                        // 2秒間ハイライト
+                        // ハイライトフラグを付与 (フェードアウトは XAML Storyboard で実行)
                         result.Record.IsRecentlyAdded = true;
-                        if (Application.Current?.Dispatcher != null)
-                        {
-                            var timer = new DispatcherTimer(DispatcherPriority.Background, Application.Current.Dispatcher)
-                            {
-                                Interval = TimeSpan.FromSeconds(2)
-                            };
-                            timer.Tick += (s, e) =>
-                            {
-                                result.Record.IsRecentlyAdded = false;
-                                timer.Stop();
-                            };
-                            timer.Start();
-                        }
                     }
                     ManualInput = string.Empty;
                     break;

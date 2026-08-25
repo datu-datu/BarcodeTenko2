@@ -28,7 +28,6 @@ namespace Tenko.Lite.Services
 
         public string GetDataPath(string fileName) => Path.Combine(_dataDir, fileName);
         public string GetScanPath(string fileName) => Path.Combine(_scansDir, fileName);
-        public string GetBaseDataPath(string fileName) => Path.Combine(_dataDir, fileName);
 
         public bool Exists(string path) => File.Exists(path);
 

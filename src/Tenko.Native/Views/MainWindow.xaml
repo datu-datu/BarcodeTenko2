@@ -155,9 +155,17 @@
                             IsReadOnly="True" BorderThickness="0">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow">
+                                <Setter Property="Background" Value="White"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsRecentlyAdded}" Value="True">
-                                        <Setter Property="Background" Value="#E1F5FE"/>
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <ColorAnimation Storyboard.TargetProperty="(Control.Background).(SolidColorBrush.Color)"
+                                                                    From="#E1F5FE" To="White" Duration="0:0:2.0" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>

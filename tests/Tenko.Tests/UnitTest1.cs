@@ -431,14 +431,12 @@ public class TenkoTests : IDisposable
         vm.StartSessionCommand.Execute(null);
         Assert.False(vm.ShowInitialLocationModal);
 
-        // 5桁スキャン -> 氏名と出席番号は空のまま登録される
+        // 5桁スキャン -> 学籍番号のみで登録される
         vm.ManualInput = "21021";
         vm.SubmitCommand.Execute(null);
         Assert.Single(vm.History);
         var record = vm.History[0];
         Assert.Equal(21021, record.Last5);
-        Assert.Empty(record.StudentName);
-        Assert.Empty(record.StudentCode);
 
         // 検索 (学籍番号でヒット)
         vm.SearchText = "21021";

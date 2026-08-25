@@ -46,10 +46,6 @@ namespace Tenko.Lite.Services
 
         public void DeleteBin(string location) => _storage.Delete(GetFilePath(location));
 
-        public void DeleteAllBins()
-        {
-            foreach (var file in _storage.GetScanFiles("ids_*.bin")) _storage.Delete(file);
-        }
 
         public void RenameBin(string oldLocation, string newFileName)
         {

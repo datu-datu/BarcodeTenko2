@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Animation;
@@ -10,49 +11,76 @@ namespace Tenko.Lite
     public partial class MainWindow : Window
     {
         private readonly MainViewModel _viewModel;
+        private readonly NotificationService _notificationService;
 
         public MainWindow(MainViewModel viewModel, NotificationService notificationService)
         {
             InitializeComponent();
 
             _viewModel = viewModel;
+            _notificationService = notificationService;
             DataContext = _viewModel;
 
+            // イベント購読
+            _notificationService.OnNotification += OnNotificationReceived;
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            Loaded += MainWindow_Loaded;
+            Closed += MainWindow_Closed;
+        }
+
+        private void MainWindow_Closed(object? sender, EventArgs e)
+        {
+            _notificationService.OnNotification -= OnNotificationReceived;
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            Loaded -= MainWindow_Loaded;
+            Closed -= MainWindow_Closed;
+        }
+
+        private void OnNotificationReceived(object? sender, NotificationEventArgs e)
+        {
             // 警告・エラー通知時の赤フラッシュアニメーション
-            notificationService.OnNotification += (s, e) =>
+            if (e.Type == NotificationType.Warning || e.Type == NotificationType.Error)
             {
-                if (e.Type == NotificationType.Warning || e.Type == NotificationType.Error)
+                Dispatcher.Invoke(() =>
                 {
-                    Dispatcher.Invoke(() =>
+                    if (FindResource("FlashRedStoryboard") is Storyboard sb)
                     {
-                        if (FindResource("FlashRedStoryboard") is Storyboard sb)
-                        {
-                            sb.Begin(ManualInputBox);
-                        }
-                    });
-                }
-            };
+                        sb.Begin(ManualInputBox);
+                    }
+                });
+            }
+        }
 
-            // 起動直後またはモーダル閉鎖時に入力欄へフォーカスを移す
-            Loaded += (s, e) =>
-            {
-                if (!_viewModel.ShowInitialLocationModal && !_viewModel.ShowSettingsModal)
-                {
-                    ManualInputBox.Focus();
-                }
-            };
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            TryFocusManualInput();
+        }
 
-            _viewModel.PropertyChanged += (s, e) =>
+        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(MainViewModel.ShowInitialLocationModal)
+                                or nameof(MainViewModel.ShowSettingsModal)
+                                or nameof(MainViewModel.ShowBinWarning)
+                                or nameof(MainViewModel.ShowCompleteModal))
             {
-                if (e.PropertyName == nameof(MainViewModel.ShowInitialLocationModal) && !_viewModel.ShowInitialLocationModal)
-                {
-                    Dispatcher.Invoke(() => ManualInputBox.Focus());
-                }
-                else if (e.PropertyName == nameof(MainViewModel.ShowSettingsModal) && !_viewModel.ShowSettingsModal)
-                {
-                    Dispatcher.Invoke(() => ManualInputBox.Focus());
-                }
-            };
+                Dispatcher.Invoke(TryFocusManualInput);
+            }
+        }
+
+        /// <summary>
+        /// いずれのモーダルも開いていない場合に入力欄へフォーカスを移す
+        /// </summary>
+        private void TryFocusManualInput()
+        {
+            bool isAnyModalOpen = _viewModel.ShowInitialLocationModal ||
+                                  _viewModel.ShowSettingsModal ||
+                                  _viewModel.ShowBinWarning ||
+                                  _viewModel.ShowCompleteModal;
+
+            if (!isAnyModalOpen && ManualInputBox.IsEnabled)
+            {
+                ManualInputBox.Focus();
+            }
         }
 
         // Enter キーでスキャン処理を実行し、入力欄へ再フォーカス

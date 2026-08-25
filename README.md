@@ -124,18 +124,36 @@ dotnet run --project src/Tenko.Native
 
 ## 📦 配布パッケージの作成（本番用）
 
-本番運用（USBメモリ配布など）用に、単一の実行可能ファイルとして出力します。
+本番運用（USBメモリ配布など）用に、単一の実行可能ファイルとして一括出力・検証を行うスクリプトを用意しています。
 
-### 1. リリースビルドの実行
+### 1. ワンコマンドで一括発行（推奨）
 
 ```powershell
-dotnet publish src/Tenko.Native -c Release
+# 暗号化データ更新・全テスト・全アプリの Release 発行・セキュリティチェックを一括実行
+.\tools\Publish-Release.ps1
+
+# （オプション例）テストをスキップして発行する場合:
+.\tools\Publish-Release.ps1 -SkipTests
+
+# （オプション例）Tenko.Lite のみを発行する場合:
+.\tools\Publish-Release.ps1 -Target Lite
 ```
 
 出力先フォルダ:
-`src/Tenko.Native/bin/Release/net8.0-windows/win-x64/publish/`
+- `dist/Tenko.Native/`
+- `dist/Tenko.Lite/`
+- `dist/ScanViewer/`
 
-### 2. 配布フォルダの準備
+### 2. 個別コマンドでの発行
+
+手動で個別ビルドする場合は以下を実行します。
+
+```powershell
+dotnet publish src/Tenko.Native -c Release -o dist/Tenko.Native
+dotnet publish src/Tenko.Lite -c Release -o dist/Tenko.Lite
+```
+
+### 3. 配布フォルダの準備
 
 出力先フォルダから、運用PCまたはUSBメモリに以下のファイルをコピーします。
 

@@ -13,7 +13,8 @@ namespace Tenko.Lite.Services
         private readonly HistoryService _historyService;
         private readonly ScanFileService _scanFileService;
         private readonly ServerSyncService? _serverSyncService;
-        private readonly Dictionary<ushort, DateTime> _recentScanAt = new();
+        private ushort _lastScannedNumber;
+        private DateTime _lastScannedAt = DateTime.MinValue;
 
         public ScanProcessor(
             HistoryService historyService,
@@ -58,10 +59,9 @@ namespace Tenko.Lite.Services
                 return ScanResult.Validation("番号の解析に失敗しました。");
             }
 
-            // 同一学籍番号の短時間連続読み取り (スキャナの誤読ノイズ) は即時無視
+            // 同一学籍番号の短時間連続読み取り (スキャナの誤読ノイズ・チャタリング) は即時無視
             DateTime now = DateTime.Now;
-            if (_recentScanAt.TryGetValue(last5, out DateTime lastAt) &&
-                (now - lastAt).TotalSeconds < ScanDebounceSeconds)
+            if (_lastScannedNumber == last5 && (now - _lastScannedAt).TotalSeconds < ScanDebounceSeconds)
             {
                 return ScanResult.Debounced();
             }
@@ -72,25 +72,15 @@ namespace Tenko.Lite.Services
                 return ScanResult.Duplicate();
             }
 
-            // 古いデバウンスキーのクリーンアップ
-            if (_recentScanAt.Count > 512)
-            {
-                foreach (var key in _recentScanAt.Where(kv => (now - kv.Value).TotalMinutes > 10).Select(kv => kv.Key).ToList())
-                {
-                    _recentScanAt.Remove(key);
-                }
-            }
-            _recentScanAt[last5] = now;
+            _lastScannedNumber = last5;
+            _lastScannedAt = now;
 
-            // 個人情報（氏名・出席番号）は参照せず空のまま生成
             var record = new ScanRecord
             {
                 Id = $"{DateTimeOffset.Now.ToUnixTimeMilliseconds()}_{last5:D5}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
                 Timestamp = now,
                 Barcode = barcode,
                 Last5 = last5,
-                StudentName = string.Empty,
-                StudentCode = string.Empty,
                 Location = location
             };
 
