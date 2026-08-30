@@ -40,7 +40,7 @@ namespace Tenko.Lite.Services
 
             if (string.IsNullOrWhiteSpace(barcode))
             {
-                return ScanResult.Validation("バーコードを入力してください。");
+                return ScanResult.Validation("バーコードを読み取るか入力してください。");
             }
 
             if (!barcode.All(char.IsDigit))
@@ -56,7 +56,7 @@ namespace Tenko.Lite.Services
             string last5Str = barcode.Length >= 5 ? barcode.Substring(barcode.Length - 5) : barcode;
             if (!ushort.TryParse(last5Str, out ushort last5))
             {
-                return ScanResult.Validation("番号の解析に失敗しました。");
+                return ScanResult.Validation("オーバーフローです");
             }
 
             // 同一学籍番号の短時間連続読み取り (スキャナの誤読ノイズ・チャタリング) は即時無視

@@ -368,8 +368,8 @@ namespace Tenko.Lite.ViewModels
             if (record == null) return;
 
             bool confirmed = _dialogService.Confirm(
-                $"このレコードを削除しますか？\n時刻: {record.FormattedTimestamp}\nバーコード: {record.Barcode}",
-                "レコード削除の確認",
+                $"この1件を削除しますか？\n時刻: {record.FormattedTimestamp}\nバーコード: {record.Barcode}",
+                "削除の確認",
                 MessageBoxImage.Question);
 
             if (!confirmed) return;
@@ -378,11 +378,11 @@ namespace Tenko.Lite.ViewModels
             {
                 _scanProcessor.DeleteRecord(record, _allHistory);
                 History.Remove(record);
-                _notificationService.Success("レコードを削除しました。");
+                _notificationService.Success("1件削除しました。");
             }
             catch (Exception ex)
             {
-                _notificationService.Error($"レコード削除失敗: {ex.Message}");
+                _notificationService.Error($"削除失敗: {ex.Message}");
             }
         }
 
@@ -425,7 +425,7 @@ namespace Tenko.Lite.ViewModels
                 ShowBinWarning = false;
                 ShowCompleteModal = false;
                 CompleteRenameTargetName = string.Empty;
-                _notificationService.Success($"ファイルを ids_{CurrentLocation}_{sanitized}.bin に退避しました。");
+                _notificationService.Success($"「ids_{CurrentLocation}_{sanitized}.bin」として保存しました。scansフォルダをご確認ください。");
             }
             catch (Exception ex)
             {

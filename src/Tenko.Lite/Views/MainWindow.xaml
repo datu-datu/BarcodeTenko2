@@ -49,7 +49,7 @@
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsLocationSet}" Value="False">
-                                        <Setter Property="Text" Value="スキャン場所を選択してください"/>
+                                        <Setter Property="Text" Value="右の「設定」で場所を選んでください"/>
                                         <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -111,7 +111,7 @@
                         <StackPanel>
                             <!-- Header: Title and Filter Badge -->
                             <DockPanel LastChildFill="False" Margin="0,0,0,6">
-                                <TextBlock Text="履歴の検索" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="履歴の絞り込み" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
                                 <Border DockPanel.Dock="Right" Background="#E8F5E9" Padding="5,1" CornerRadius="2"
                                         Visibility="{Binding IsFiltered, Converter={StaticResource BoolToVis}}">
                                     <TextBlock Text="絞り込み中" FontSize="10" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold"/>
@@ -129,7 +129,7 @@
                                         HorizontalAlignment="Right" VerticalAlignment="Center"
                                         Width="20" Height="20" Margin="0,0,3,0"
                                         BorderThickness="0" Background="Transparent" Foreground="#888888"
-                                        Cursor="Hand" ToolTip="検索をクリア" FontSize="11"/>
+                                        Cursor="Hand" ToolTip="キャンセル" FontSize="11"/>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -221,7 +221,7 @@
                     <ComboBox ItemsSource="{Binding Locations}" SelectedItem="{Binding CurrentLocation, Mode=TwoWay}" 
                             Height="26" Margin="0,0,0,20"/>
 
-                    <Button Content="点呼を開始する" Command="{Binding StartSessionCommand}" 
+                    <Button Content="点呼を始める" Command="{Binding StartSessionCommand}" 
                             IsEnabled="{Binding IsLocationSet}"
                             Style="{StaticResource ModernButton}" Height="30"/>
                 </StackPanel>
@@ -233,12 +233,12 @@
             <Border Background="{StaticResource BackgroundBrush}" Width="420" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="20" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                 <StackPanel>
                     <TextBlock Text="点呼完了" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
-                    <TextBlock Text="現在の点呼データを保存して画面をリセットします。&#x0a;区分名（例: 午前、午後）を入力して「保存して完了」を押してください。"
+                    <TextBlock Text="現在の点呼データを保存して履歴をリセットします。&#x0a;区分名（例: 午前、午後）を入力して「保存して完了」を押してください。"
                                FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                TextWrapping="Wrap" Margin="0,0,0,10"/>
 
                     <Border Background="#F5F5F5" Padding="8,6" Margin="0,0,0,15" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
-                        <TextBlock Text="※ scans フォルダ内に ids_[場所]_[名前].bin として保存されます" 
+                        <TextBlock Text="※ 保存したファイルはscans というフォルダ内にあります。できた「ids_」から始まるファイルを提出してください。" 
                                    FontSize="10" Foreground="#666666"/>
                     </Border>
 
@@ -262,16 +262,16 @@
             <Border Background="{StaticResource BackgroundBrush}" Width="400" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="20" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                 <StackPanel>
                     <TextBlock Text="既存データ検出" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
-                    <TextBlock Text="既存データの名前を変更するか、そのまま追記してください。"
+                    <TextBlock Text="既存データの名前を変更し保存するか、そのまま追記してください。"
                         TextWrapping="Wrap" Margin="0,0,0,15"/>
                     
-                    <TextBlock Text="新しいファイル名" FontSize="11" Margin="0,0,0,5"/>
+                    <TextBlock Text="保存する名前（例：昨日のやつ）" FontSize="11" Margin="0,0,0,5"/>
                     <TextBox Style="{StaticResource ModernTextBox}" 
                             Text="{Binding RenameTargetName, UpdateSourceTrigger=PropertyChanged}"
                             Height="25" Margin="0,0,0,20"/>
                     
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="名前を変更" Command="{Binding RenameWarningCommand}"
+                        <Button Content="名前を変更し保存" Command="{Binding RenameWarningCommand}"
                                 Style="{StaticResource ModernButton}" Margin="0,0,10,0"/>
                         <Button Content="そのまま追記" Command="{Binding DismissWarningCommand}"
                                 Style="{StaticResource ModernButton}"/>
