@@ -11,6 +11,7 @@ dist/
 data/history.json
 data/settings.json
 data/server.json
+data/students.enc
 *.passphrase
 scans/
 tools/data/
