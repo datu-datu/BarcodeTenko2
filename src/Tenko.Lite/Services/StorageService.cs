@@ -47,7 +47,13 @@ namespace Tenko.Lite.Services
 
         public void SaveJson<T>(string path, T value, bool indent = false)
         {
-            File.WriteAllText(path, JsonHelper.Serialize(value, indent));
+            // 一時ファイルへ書き出してから置換し、書き込み途中のクラッシュによる破損を防ぐ
+            string tempPath = path + ".tmp";
+            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                JsonHelper.SerializeToStream(stream, value, indent);
+            }
+            File.Move(tempPath, path, true);
         }
 
         public byte[] ReadAllBytes(string path) => Exists(path) ? File.ReadAllBytes(path) : Array.Empty<byte>();
@@ -60,7 +66,5 @@ namespace Tenko.Lite.Services
         
         public void Delete(string path) { if (Exists(path)) File.Delete(path); }
         public void Move(string source, string dest) { if (Exists(source)) File.Move(source, dest); }
-
-        public string[] GetScanFiles(string pattern) => Directory.Exists(_scansDir) ? Directory.GetFiles(_scansDir, pattern) : Array.Empty<string>();
     }
 }

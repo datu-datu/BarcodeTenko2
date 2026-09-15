@@ -32,6 +32,7 @@ namespace Tenko.Lite
         {
             _notificationService.OnNotification -= OnNotificationReceived;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.Dispose();
             Loaded -= MainWindow_Loaded;
             Closed -= MainWindow_Closed;
         }
@@ -39,15 +40,23 @@ namespace Tenko.Lite
         private void OnNotificationReceived(object? sender, NotificationEventArgs e)
         {
             // 警告・エラー通知時の赤フラッシュアニメーション
-            if (e.Type == NotificationType.Warning || e.Type == NotificationType.Error)
+            if (e.Type != NotificationType.Warning && e.Type != NotificationType.Error) return;
+
+            if (Dispatcher.CheckAccess())
             {
-                Dispatcher.Invoke(() =>
-                {
-                    if (FindResource("FlashRedStoryboard") is Storyboard sb)
-                    {
-                        sb.Begin(ManualInputBox);
-                    }
-                });
+                FlashManualInput();
+            }
+            else
+            {
+                Dispatcher.Invoke(FlashManualInput);
+            }
+        }
+
+        private void FlashManualInput()
+        {
+            if (FindResource("FlashRedStoryboard") is Storyboard sb)
+            {
+                sb.Begin(ManualInputBox);
             }
         }
 

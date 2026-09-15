@@ -30,6 +30,7 @@ namespace Tenko.Lite.Services
         public const string DeletePersistFileName = "sync_deletes.json";
 
         private readonly HttpClient _httpClient;
+        private readonly bool _ownsHttpClient;
         private readonly List<ScanRecord> _pendingRecords = new();
         private readonly List<string> _pendingDeletions = new();
         private readonly object _lock = new();
@@ -51,6 +52,8 @@ namespace Tenko.Lite.Services
 
         public ServerSyncService(HttpClient? httpClient = null, string? persistFilePath = null)
         {
+            // 注入された HttpClient は所有者が別にいるため破棄しない
+            _ownsHttpClient = httpClient == null;
             _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
             _persistPath = persistFilePath;
 
@@ -483,7 +486,10 @@ namespace Tenko.Lite.Services
         public void Dispose()
         {
             _retryTimer?.Stop();
-            _httpClient?.Dispose();
+            if (_ownsHttpClient)
+            {
+                _httpClient.Dispose();
+            }
             _syncSemaphore.Dispose();
             _deleteSemaphore.Dispose();
         }

@@ -53,8 +53,8 @@ namespace Tenko.Lite.Services
                 return ScanResult.Validation("5桁または10桁の数字を入力してください。");
             }
 
-            string last5Str = barcode.Length >= 5 ? barcode.Substring(barcode.Length - 5) : barcode;
-            if (!ushort.TryParse(last5Str, out ushort last5))
+            // 5桁/10桁のいずれでも下5桁を切り出して解析する
+            if (!ushort.TryParse(barcode.AsSpan(barcode.Length - 5), out ushort last5))
             {
                 return ScanResult.Validation("オーバーフローです");
             }

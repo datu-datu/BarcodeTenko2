@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 
 namespace Tenko.Lite.Services
 {
@@ -33,15 +31,24 @@ namespace Tenko.Lite.Services
             byte[] data = _storage.ReadAllBytes(path);
             if (data.Length == 0 || data.Length % 2 != 0) return;
 
-            var values = new List<ushort>();
-            for (int i = 0; i < data.Length; i += 2) values.Add(BitConverter.ToUInt16(data, i));
-
-            int index = values.LastIndexOf(last5);
-            if (index >= 0)
+            // 末尾から走査して最後に一致する 2 バイトを除去する
+            int count = data.Length / 2;
+            int target = -1;
+            for (int i = count - 1; i >= 0; i--)
             {
-                values.RemoveAt(index);
-                _storage.WriteAllBytes(path, values.SelectMany(BitConverter.GetBytes).ToArray());
+                if (BitConverter.ToUInt16(data, i * 2) == last5)
+                {
+                    target = i;
+                    break;
+                }
             }
+            if (target < 0) return;
+
+            var result = new byte[data.Length - 2];
+            int headLength = target * 2;
+            Buffer.BlockCopy(data, 0, result, 0, headLength);
+            Buffer.BlockCopy(data, headLength + 2, result, headLength, data.Length - headLength - 2);
+            _storage.WriteAllBytes(path, result);
         }
 
         public void DeleteBin(string location) => _storage.Delete(GetFilePath(location));

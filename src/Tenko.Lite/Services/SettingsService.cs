@@ -23,7 +23,6 @@ namespace Tenko.Lite.Services
             _settingsPath = _storage.GetDataPath("settings.json");
             _locationsPath = _storage.GetDataPath("locations.json");
             
-            _locations = EmbeddedLocations.GetLocations().ToList();
             _settings = _storage.LoadJson<AppSettings>(_settingsPath) ?? new();
             LoadLocations();
         }

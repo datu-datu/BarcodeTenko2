@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 
@@ -20,5 +21,8 @@ namespace Tenko.Lite.Infrastructure
 
         public static T? Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json, DefaultOptions);
         public static string Serialize<T>(T value, bool indent = false) => JsonSerializer.Serialize(value, indent ? IndentedOptions : DefaultOptions);
+
+        public static void SerializeToStream<T>(Stream stream, T value, bool indent = false)
+            => JsonSerializer.Serialize(stream, value, indent ? IndentedOptions : DefaultOptions);
     }
 }

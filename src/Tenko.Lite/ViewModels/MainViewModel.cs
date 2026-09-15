@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -11,7 +10,7 @@ using Tenko.Lite.Services;
 
 namespace Tenko.Lite.ViewModels
 {
-    public class MainViewModel : ViewModelBase
+    public class MainViewModel : ViewModelBase, IDisposable
     {
         private readonly IScanProcessor _scanProcessor;
         private readonly SettingsService _settingsService;
@@ -38,6 +37,7 @@ namespace Tenko.Lite.ViewModels
 
         private List<ScanRecord> _allHistory = new();
         private DispatcherTimer? _notificationTimer;
+        private bool _disposed;
 
         public ObservableCollection<ScanRecord> History { get; } = new();
         public ObservableCollection<string> Locations { get; } = new();
@@ -68,37 +68,17 @@ namespace Tenko.Lite.ViewModels
 
             // 時計サービスからの現在時刻購読
             UpdateClockString(_clockService.Now);
-            _clockService.OnTick += time =>
-            {
-                if (Application.Current?.Dispatcher != null && !Application.Current.Dispatcher.CheckAccess())
-                {
-                    Application.Current.Dispatcher.Invoke(() => UpdateClockString(time));
-                }
-                else
-                {
-                    UpdateClockString(time);
-                }
-            };
+            _clockService.OnTick += OnClockTick;
 
             // サーバー同期ステータスの購読
             if (_serverSyncService != null)
             {
                 _syncStatusText = _serverSyncService.StatusMessage;
-                _serverSyncService.OnStatusChanged += (status, msg) =>
-                {
-                    if (Application.Current?.Dispatcher != null && !Application.Current.Dispatcher.CheckAccess())
-                    {
-                        Application.Current.Dispatcher.Invoke(() => SyncStatusText = msg);
-                    }
-                    else
-                    {
-                        SyncStatusText = msg;
-                    }
-                };
+                _serverSyncService.OnStatusChanged += OnSyncStatusChanged;
             }
 
             // 通知サービスの購読
-            _notificationService.OnNotification += (s, e) => ShowNotification(e.Message, e.Type);
+            _notificationService.OnNotification += OnNotificationReceived;
 
             // コマンド初期化
             SubmitCommand = new RelayCommand(_ => SubmitManualInput());
@@ -283,6 +263,29 @@ namespace Tenko.Lite.ViewModels
             CurrentTimeString = time.ToString("yyyy-MM-dd HH:mm:ss");
         }
 
+        private void OnClockTick(DateTime time) => RunOnUi(() => UpdateClockString(time));
+
+        private void OnSyncStatusChanged(SyncStatus status, string message) => RunOnUi(() => SyncStatusText = message);
+
+        private void OnNotificationReceived(object? sender, NotificationEventArgs e)
+            => RunOnUi(() => ShowNotification(e.Message, e.Type));
+
+        /// <summary>
+        /// 現在のスレッドが UI スレッドでない場合のみディスパッチャへ委譲する
+        /// </summary>
+        private static void RunOnUi(Action action)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess())
+            {
+                action();
+            }
+            else
+            {
+                dispatcher.Invoke(action);
+            }
+        }
+
         private void LoadHistory()
         {
             _allHistory = _scanProcessor.LoadHistory();
@@ -295,27 +298,23 @@ namespace Tenko.Lite.ViewModels
         }
 
         // Lite版: 学籍番号(下5桁)とバーコードのみで検索判定
-        private bool MatchesSearch(ScanRecord record)
+        private static bool MatchesSearch(ScanRecord record, string searchLower)
         {
-            if (string.IsNullOrWhiteSpace(SearchText)) return true;
-
-            string lowerSearch = SearchText.ToLower();
-            return record.Last5.ToString("D5").Contains(lowerSearch) ||
-                   record.Barcode.Contains(lowerSearch);
+            return record.Last5.ToString("D5").Contains(searchLower) ||
+                   record.Barcode.Contains(searchLower);
         }
 
         private void RefreshHistoryView()
         {
             History.Clear();
-            var query = _allHistory.Where(h => h.Location == CurrentLocation);
 
-            if (!string.IsNullOrWhiteSpace(SearchText))
-            {
-                query = query.Where(MatchesSearch);
-            }
+            string searchLower = IsFiltered ? SearchText.ToLower() : string.Empty;
 
-            foreach (var item in query.ToList())
+            foreach (var item in _allHistory)
             {
+                if (item.Location != CurrentLocation) continue;
+                if (searchLower.Length > 0 && !MatchesSearch(item, searchLower)) continue;
+
                 History.Add(item);
             }
         }
@@ -332,7 +331,7 @@ namespace Tenko.Lite.ViewModels
                 case ScanResultStatus.Success:
                     if (result.Record != null)
                     {
-                        if (MatchesSearch(result.Record))
+                        if (!IsFiltered || MatchesSearch(result.Record, SearchText.ToLower()))
                         {
                             History.Insert(0, result.Record);
                         }
@@ -504,6 +503,27 @@ namespace Tenko.Lite.ViewModels
                 }
                 _notificationTimer.Start();
             }
+        }
+
+        /// <summary>
+        /// サービスへの購読とタイマーを解放する
+        /// </summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+
+            _clockService.OnTick -= OnClockTick;
+            _notificationService.OnNotification -= OnNotificationReceived;
+            if (_serverSyncService != null)
+            {
+                _serverSyncService.OnStatusChanged -= OnSyncStatusChanged;
+            }
+
+            _notificationTimer?.Stop();
+            _notificationTimer = null;
+
+            GC.SuppressFinalize(this);
         }
 
         #endregion
