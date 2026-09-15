@@ -29,6 +29,10 @@ namespace Tenko.Lite.Services
         public const string PersistFileName = "sync_queue.json";
         public const string DeletePersistFileName = "sync_deletes.json";
 
+        // ネットワーク不通時にキューが無制限に増えないよう上限を設ける
+        private const int MaxPendingRecords = 5000;
+        private const int MaxPendingDeletions = 5000;
+
         private readonly HttpClient _httpClient;
         private readonly bool _ownsHttpClient;
         private readonly List<ScanRecord> _pendingRecords = new();
@@ -98,18 +102,33 @@ namespace Tenko.Lite.Services
             }
 
             bool added = false;
+            bool overflow = false;
             lock (_lock)
             {
                 if (!_pendingRecords.Any(r => r.Id == record.Id))
                 {
                     _pendingRecords.Add(record);
                     added = true;
+
+                    if (_pendingRecords.Count > MaxPendingRecords)
+                    {
+                        // 上限超過時は古いもの（先頭）から破棄する
+                        int excess = _pendingRecords.Count - MaxPendingRecords;
+                        _pendingRecords.RemoveRange(0, excess);
+                        overflow = true;
+                    }
                 }
             }
 
             if (added)
             {
                 SavePendingRecords();
+            }
+
+            if (overflow)
+            {
+                Debug.WriteLine($"[ServerSyncService] Pending queue exceeded {MaxPendingRecords}; dropped oldest record(s).");
+                UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {PendingCount}件 (上限超過)");
             }
 
             _ = Task.Run(SyncPendingAsync);
@@ -204,52 +223,70 @@ namespace Tenko.Lite.Services
             }
         }
 
-        public bool RemovePendingRecord(string id)
+        public bool RemovePendingRecord(string id) => RemovePendingRecords(new[] { id }).Count > 0;
+
+        /// <summary>
+        /// 送信キューから指定 ID 群をまとめて除去し、実際に除去できた ID を返す。
+        /// 保存とステータス更新は最後に 1 回だけ行う。同期が無効な場合は全 ID を除去済みとして返す
+        /// </summary>
+        public List<string> RemovePendingRecords(IEnumerable<string> ids)
         {
+            var idList = ids.Where(i => !string.IsNullOrWhiteSpace(i)).Distinct().ToList();
+            if (idList.Count == 0) return new List<string>();
+
             if (!EmbeddedServerConfig.IsEnabled || string.IsNullOrWhiteSpace(EmbeddedServerConfig.ServerUrl))
             {
-                return true;
+                return idList;
             }
 
-            if (string.IsNullOrWhiteSpace(id)) return false;
-
-            bool removed;
+            var idSet = new HashSet<string>(idList);
+            List<string> removed;
             lock (_lock)
             {
-                removed = _pendingRecords.RemoveAll(r => r.Id == id) > 0;
+                removed = _pendingRecords.Where(r => idSet.Contains(r.Id)).Select(r => r.Id).ToList();
+                if (removed.Count > 0)
+                {
+                    _pendingRecords.RemoveAll(r => idSet.Contains(r.Id));
+                }
             }
 
-            if (removed)
+            if (removed.Count > 0)
             {
                 SavePendingRecords();
-                int remaining = PendingCount;
-                if (remaining == 0 && PendingDeletionCount == 0)
-                {
-                    UpdateStatus(SyncStatus.Synced, "☁ 同期済");
-                }
-                else
-                {
-                    UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {remaining}件");
-                }
+                UpdatePendingStatus();
             }
 
             return removed;
         }
 
-        public void EnqueueDeletion(string id)
+        public void EnqueueDeletion(string id) => EnqueueDeletions(new[] { id });
+
+        /// <summary>
+        /// 指定 ID 群を削除キューへまとめて追加する。保存とステータス更新は最後に 1 回だけ行う
+        /// </summary>
+        public void EnqueueDeletions(IEnumerable<string> ids)
         {
             if (!EmbeddedServerConfig.IsEnabled || string.IsNullOrWhiteSpace(EmbeddedServerConfig.ServerUrl))
             {
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(id)) return;
+            var idList = ids.Where(i => !string.IsNullOrWhiteSpace(i)).Distinct().ToList();
+            if (idList.Count == 0) return;
 
             bool added = false;
             lock (_lock)
             {
-                if (!_pendingDeletions.Contains(id))
+                foreach (var id in idList)
                 {
+                    if (_pendingDeletions.Contains(id)) continue;
+
+                    if (_pendingDeletions.Count >= MaxPendingDeletions)
+                    {
+                        Debug.WriteLine($"[ServerSyncService] Pending deletion queue reached {MaxPendingDeletions}; skipping '{id}'.");
+                        break;
+                    }
+
                     _pendingDeletions.Add(id);
                     added = true;
                 }
@@ -258,6 +295,7 @@ namespace Tenko.Lite.Services
             if (added)
             {
                 SavePendingDeletions();
+                UpdatePendingStatus();
             }
 
             _ = Task.Run(FlushDeletionsAsync);
@@ -345,6 +383,22 @@ namespace Tenko.Lite.Services
             CurrentStatus = status;
             StatusMessage = message;
             OnStatusChanged?.Invoke(status, message);
+        }
+
+        /// <summary>
+        /// キュー残数に応じたステータスを表示する
+        /// </summary>
+        private void UpdatePendingStatus()
+        {
+            int pendingRecords = PendingCount;
+            if (pendingRecords == 0 && PendingDeletionCount == 0)
+            {
+                UpdateStatus(SyncStatus.Synced, "☁ 同期済");
+            }
+            else
+            {
+                UpdateStatus(SyncStatus.Pending, $"☁ 未送信 {pendingRecords}件");
+            }
         }
 
         private void LoadPendingRecords()

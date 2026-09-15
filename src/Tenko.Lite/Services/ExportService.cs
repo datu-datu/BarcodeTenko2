@@ -19,9 +19,10 @@ namespace Tenko.Lite.Services
             string fileName = $"scan_{location}_{DateTime.Now:yyyyMMddHHmm}.csv";
             string fullPath = string.IsNullOrEmpty(outputDir) ? fileName : Path.Combine(outputDir, fileName);
 
-            using (var writer = new StreamWriter(fullPath))
+            // Excel で日本語ヘッダを正しく開けるよう BOM 付き UTF-8 で書き出す
+            using (var writer = new StreamWriter(fullPath, false, new System.Text.UTF8Encoding(true)))
             {
-                writer.WriteLine("Timestamp,ID");
+                writer.WriteLine("時刻,学籍番号");
                 foreach (var r in recordList)
                 {
                     writer.WriteLine($"{r.FormattedTimestamp},{r.Last5:D5}");

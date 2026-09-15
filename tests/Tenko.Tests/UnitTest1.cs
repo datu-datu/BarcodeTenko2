@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
 using System.Windows;
 using Tenko.Native.Common;
@@ -482,4 +483,400 @@ public class TenkoTests : IDisposable
         vm.DeleteRecordCommand.Execute(record);
         Assert.Empty(vm.History);
     }
+
+    [Fact]
+    public void TenkoLite_DeleteRecord_RemovesRecordByIdAndReportsUnknownId()
+    {
+        string baseDir = Path.Combine(Path.GetTempPath(), "TenkoTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(baseDir);
+        try
+        {
+            var storage = new Tenko.Lite.Services.StorageService(baseDir);
+            var historyService = new Tenko.Lite.Services.HistoryService(storage);
+            var scanFileService = new Tenko.Lite.Services.ScanFileService(storage);
+            var processor = new Tenko.Lite.Services.ScanProcessor(historyService, scanFileService);
+
+            string loc = "DelTest_" + Guid.NewGuid().ToString("N")[..6];
+            var record = new Tenko.Lite.Models.ScanRecord
+            {
+                Id = "del-1",
+                Timestamp = DateTime.Now,
+                Barcode = "21021",
+                Last5 = 21021,
+                Location = loc
+            };
+            var history = new List<Tenko.Lite.Models.ScanRecord> { record };
+            scanFileService.AppendLast5(loc, 21021);
+
+            // 同一 Id を持つ別インスタンスを渡しても、Id 一致で 1 件だけ削除される
+            var anotherInstance = new Tenko.Lite.Models.ScanRecord
+            {
+                Id = record.Id,
+                Timestamp = record.Timestamp,
+                Barcode = record.Barcode,
+                Last5 = record.Last5,
+                Location = record.Location
+            };
+
+            bool removed = processor.DeleteRecord(anotherInstance, history, out bool binMismatch);
+            Assert.True(removed);
+            Assert.False(binMismatch);
+            Assert.Empty(history);
+            Assert.False(scanFileService.Exists(loc));
+
+            // 存在しない Id は削除されない
+            var unknown = new Tenko.Lite.Models.ScanRecord
+            {
+                Id = "no-such-id",
+                Timestamp = DateTime.Now,
+                Barcode = "12345",
+                Last5 = 12345,
+                Location = loc
+            };
+            Assert.False(processor.DeleteRecord(unknown, history, out _));
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+        }
+    }
+
+    [Fact]
+    public void TenkoLite_DeleteRecord_ReportsBinMismatch()
+    {
+        string baseDir = Path.Combine(Path.GetTempPath(), "TenkoTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(baseDir);
+        try
+        {
+            var storage = new Tenko.Lite.Services.StorageService(baseDir);
+            var historyService = new Tenko.Lite.Services.HistoryService(storage);
+            var scanFileService = new Tenko.Lite.Services.ScanFileService(storage);
+            var processor = new Tenko.Lite.Services.ScanProcessor(historyService, scanFileService);
+
+            // 1) BIN が存在しない（履歴だけある）不整合を検出する
+            string locA = "BinMiss_" + Guid.NewGuid().ToString("N")[..6];
+            var recordA = new Tenko.Lite.Models.ScanRecord
+            {
+                Id = "bin-miss-1",
+                Timestamp = DateTime.Now,
+                Barcode = "21021",
+                Last5 = 21021,
+                Location = locA
+            };
+            var historyA = new List<Tenko.Lite.Models.ScanRecord> { recordA };
+
+            Assert.True(processor.DeleteRecord(recordA, historyA, out bool binMismatchA));
+            Assert.True(binMismatchA);
+
+            // 2) BIN と履歴の件数が食い違う場合は、除去に成功しても不整合として報告する
+            string locB = "BinCount_" + Guid.NewGuid().ToString("N")[..6];
+            var recordB1 = new Tenko.Lite.Models.ScanRecord
+            {
+                Id = "dup-1",
+                Timestamp = DateTime.Now,
+                Barcode = "55555",
+                Last5 = 55555,
+                Location = locB
+            };
+            var recordB2 = new Tenko.Lite.Models.ScanRecord
+            {
+                Id = "dup-2",
+                Timestamp = DateTime.Now,
+                Barcode = "55555",
+                Last5 = 55555,
+                Location = locB
+            };
+            var historyB = new List<Tenko.Lite.Models.ScanRecord> { recordB1, recordB2 };
+            scanFileService.AppendLast5(locB, 55555); // BIN には 1 件しか無い
+
+            Assert.Equal(1, scanFileService.CountLast5(locB, 55555));
+            Assert.True(processor.DeleteRecord(recordB1, historyB, out bool binMismatchB));
+            Assert.True(binMismatchB);
+
+            // 3) 壊れた BIN でも例外を出さず false を返す
+            string locC = "BinBroken_" + Guid.NewGuid().ToString("N")[..6];
+            File.WriteAllBytes(storage.GetScanPath($"ids_{locC}.bin"), new byte[] { 0x01, 0x02, 0x03 });
+            Assert.False(scanFileService.RemoveLast5(locC, 21021));
+            Assert.Equal(0, scanFileService.CountLast5(locC, 21021));
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task TenkoLite_DeleteAllForLocation_PropagatesServerDeletionInBatch()
+    {
+        if (!Tenko.Lite.Generated.EmbeddedServerConfig.IsEnabled)
+        {
+            return; // サーバー設定が埋め込まれていないビルドでは同期しない
+        }
+
+        string baseDir = Path.Combine(Path.GetTempPath(), "TenkoTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(baseDir);
+        try
+        {
+            var storage = new Tenko.Lite.Services.StorageService(baseDir);
+            var historyService = new Tenko.Lite.Services.HistoryService(storage);
+            var scanFileService = new Tenko.Lite.Services.ScanFileService(storage);
+            string persistPath = storage.GetDataPath(Tenko.Lite.Services.ServerSyncService.PersistFileName);
+            string deletePersistPath = storage.GetDataPath(Tenko.Lite.Services.ServerSyncService.DeletePersistFileName);
+
+            // 送信は失敗させ、キューが送信で消えないようにする
+            var failingHandler = new MockHttpMessageHandler(_ =>
+                new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+
+            string loc = "BatchTest_" + Guid.NewGuid().ToString("N")[..6];
+
+            using (var sync = new Tenko.Lite.Services.ServerSyncService(new HttpClient(failingHandler), persistPath))
+            {
+                var processor = new Tenko.Lite.Services.ScanProcessor(historyService, scanFileService, sync);
+
+                // 未送信（送信キューに残っている）レコードと、送信済み（キューに無い）レコードを混在させる
+                var pending = new Tenko.Lite.Models.ScanRecord
+                {
+                    Id = "pending-1",
+                    Timestamp = DateTime.Now,
+                    Barcode = "21021",
+                    Last5 = 21021,
+                    Location = loc
+                };
+                var alreadySent = new Tenko.Lite.Models.ScanRecord
+                {
+                    Id = "sent-1",
+                    Timestamp = DateTime.Now,
+                    Barcode = "23213",
+                    Last5 = 23213,
+                    Location = loc
+                };
+
+                sync.EnqueueRecord(pending);
+                Assert.Equal(1, sync.PendingCount);
+
+                var history = new List<Tenko.Lite.Models.ScanRecord> { pending, alreadySent };
+                historyService.SaveHistory(history);
+                scanFileService.AppendLast5(loc, 21021);
+                scanFileService.AppendLast5(loc, 23213);
+
+                processor.DeleteAllForLocation(loc, history);
+
+                // 未送信分は送信キューから消え、送信済み分だけが削除キューへ積まれる（保存は各 1 回）
+                Assert.Equal(0, sync.PendingCount);
+                Assert.Equal(1, sync.PendingDeletionCount);
+
+                Assert.DoesNotContain("pending-1", File.ReadAllText(deletePersistPath));
+                Assert.Contains("sent-1", File.ReadAllText(deletePersistPath));
+                Assert.False(scanFileService.Exists(loc));
+
+                await sync.FlushDeletionsAsync();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+        }
+    }
+
+    [Fact]
+    public void TenkoLite_MainViewModel_DisposeStopsEventSubscriptions()
+    {
+        string baseDir = Path.Combine(Path.GetTempPath(), "TenkoTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(baseDir);
+        try
+        {
+            var storage = new Tenko.Lite.Services.StorageService(baseDir);
+            var settingsService = new Tenko.Lite.Services.SettingsService(storage);
+            var historyService = new Tenko.Lite.Services.HistoryService(storage);
+            var scanFileService = new Tenko.Lite.Services.ScanFileService(storage);
+            var notificationService = new Tenko.Lite.Services.NotificationService();
+            var clockService = new MockClockService();
+            var exportService = new Tenko.Lite.Services.ExportService();
+            var dialogService = new MockDialogService { ReturnValue = true };
+            var processor = new Tenko.Lite.Services.ScanProcessor(historyService, scanFileService);
+
+            var vm = new Tenko.Lite.ViewModels.MainViewModel(
+                processor, settingsService, notificationService, clockService, exportService, dialogService);
+
+            // 破棄前は両方の購読が生きている
+            clockService.TriggerTick(new DateTime(2026, 8, 22, 10, 0, 5));
+            Assert.Equal("2026-08-22 10:00:05", vm.CurrentTimeString);
+
+            notificationService.Success("生存中");
+            Assert.Equal("生存中", vm.NotificationMessage);
+
+            vm.Dispose();
+
+            // 破棄後はイベントが作用しない
+            clockService.TriggerTick(new DateTime(2026, 8, 22, 11, 0, 0));
+            Assert.Equal("2026-08-22 10:00:05", vm.CurrentTimeString);
+
+            notificationService.Success("破棄後");
+            Assert.Equal("生存中", vm.NotificationMessage);
+
+            // 二重 Dispose でも例外にならない
+            vm.Dispose();
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+        }
+    }
+
+    [Fact]
+    public void TenkoLite_CurrentLocationCount_IsNotAffectedBySearchFilter()
+    {
+        string baseDir = Path.Combine(Path.GetTempPath(), "TenkoTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(baseDir);
+        try
+        {
+            var storage = new Tenko.Lite.Services.StorageService(baseDir);
+            var settingsService = new Tenko.Lite.Services.SettingsService(storage);
+            var historyService = new Tenko.Lite.Services.HistoryService(storage);
+            var scanFileService = new Tenko.Lite.Services.ScanFileService(storage);
+            var notificationService = new Tenko.Lite.Services.NotificationService();
+            var clockService = new MockClockService();
+            var exportService = new Tenko.Lite.Services.ExportService();
+            var dialogService = new MockDialogService { ReturnValue = true };
+            var processor = new Tenko.Lite.Services.ScanProcessor(historyService, scanFileService);
+
+            using var vm = new Tenko.Lite.ViewModels.MainViewModel(
+                processor, settingsService, notificationService, clockService, exportService, dialogService);
+
+            string loc = "CountTest_" + Guid.NewGuid().ToString("N")[..6];
+            vm.CurrentLocation = loc;
+
+            vm.ManualInput = "21021";
+            vm.SubmitCommand.Execute(null);
+            vm.ManualInput = "23213";
+            vm.SubmitCommand.Execute(null);
+
+            Assert.Equal(2, vm.CurrentLocationCount);
+            Assert.Equal(2, vm.FilteredCount);
+
+            // 絞り込んでも累計は変わらない
+            vm.SearchText = "21021";
+            Assert.Equal(2, vm.CurrentLocationCount);
+            Assert.Equal(1, vm.FilteredCount);
+            Assert.Single(vm.History);
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+        }
+    }
+
+    [Fact]
+    public void TenkoLite_Export_WritesIntoInjectedDirectoryWithJapaneseCsvHeader()
+    {
+        string baseDir = Path.Combine(Path.GetTempPath(), "TenkoTests_" + Guid.NewGuid().ToString("N"));
+        string exportDir = Path.Combine(baseDir, "exports");
+        Directory.CreateDirectory(baseDir);
+        try
+        {
+            var storage = new Tenko.Lite.Services.StorageService(baseDir);
+            var settingsService = new Tenko.Lite.Services.SettingsService(storage);
+            var historyService = new Tenko.Lite.Services.HistoryService(storage);
+            var scanFileService = new Tenko.Lite.Services.ScanFileService(storage);
+            var notificationService = new Tenko.Lite.Services.NotificationService();
+            var clockService = new MockClockService();
+            var exportService = new Tenko.Lite.Services.ExportService();
+            var dialogService = new MockDialogService { ReturnValue = true };
+            var processor = new Tenko.Lite.Services.ScanProcessor(historyService, scanFileService);
+
+            using var vm = new Tenko.Lite.ViewModels.MainViewModel(
+                processor, settingsService, notificationService, clockService, exportService, dialogService)
+            {
+                ExportDirectory = exportDir
+            };
+
+            string message = string.Empty;
+            notificationService.OnNotification += (s, e) => message = e.Message;
+
+            string loc = "ExportTest_" + Guid.NewGuid().ToString("N")[..6];
+            vm.CurrentLocation = loc;
+            vm.ManualInput = "21021";
+            vm.SubmitCommand.Execute(null);
+
+            vm.ExportCsvCommand.Execute(null);
+
+            // 出力先が通知に絶対パスで出て、実際にファイルが作られている
+            string csvPath = Directory.GetFiles(exportDir, "*.csv").Single();
+            Assert.Contains(csvPath, message);
+
+            // ヘッダが実データ（学籍番号）と一致し、BOM 付き UTF-8 で書かれている
+            byte[] bytes = File.ReadAllBytes(csvPath);
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, new[] { bytes[0], bytes[1], bytes[2] });
+            Assert.StartsWith("時刻,学籍番号", File.ReadAllText(csvPath));
+
+            vm.ExportBinCommand.Execute(null);
+            Assert.Single(Directory.GetFiles(exportDir, "*.bin"));
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+        }
+    }
+
+    [Fact]
+    public void TenkoLite_SubmitManualInput_NotifiesErrorAndKeepsInput_WhenProcessorThrows()
+    {
+        string baseDir = Path.Combine(Path.GetTempPath(), "TenkoTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(baseDir);
+        try
+        {
+            var storage = new Tenko.Lite.Services.StorageService(baseDir);
+            var settingsService = new Tenko.Lite.Services.SettingsService(storage);
+            var notificationService = new Tenko.Lite.Services.NotificationService();
+            var clockService = new MockClockService();
+            var exportService = new Tenko.Lite.Services.ExportService();
+            var dialogService = new MockDialogService { ReturnValue = true };
+
+            string message = string.Empty;
+            Tenko.Lite.Services.NotificationType type = Tenko.Lite.Services.NotificationType.Success;
+            notificationService.OnNotification += (s, e) => { message = e.Message; type = e.Type; };
+
+            using var vm = new Tenko.Lite.ViewModels.MainViewModel(
+                new ThrowingScanProcessor(), settingsService, notificationService, clockService, exportService, dialogService);
+
+            vm.CurrentLocation = "ThrowTest";
+            vm.ManualInput = "21021";
+            vm.SubmitCommand.Execute(null);
+
+            Assert.Equal(Tenko.Lite.Services.NotificationType.Error, type);
+            Assert.Contains("保存に失敗", message);
+            Assert.Empty(vm.History);
+            Assert.Equal("21021", vm.ManualInput); // 再試行できるよう入力値は消さない
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+        }
+    }
+}
+
+/// <summary>
+/// ProcessScan が必ず例外を投げるスタブ（保存失敗時の挙動検証用）
+/// </summary>
+public class ThrowingScanProcessor : Tenko.Lite.Services.IScanProcessor
+{
+    public List<Tenko.Lite.Models.ScanRecord> LoadHistory() => new();
+
+    public Tenko.Lite.Services.ScanResult ProcessScan(
+        string barcode, string location, List<Tenko.Lite.Models.ScanRecord> allHistory)
+        => throw new IOException("テスト用の書き込み失敗");
+
+    public bool DeleteRecord(
+        Tenko.Lite.Models.ScanRecord record, List<Tenko.Lite.Models.ScanRecord> allHistory, out bool binMismatch)
+    {
+        binMismatch = false;
+        return false;
+    }
+
+    public void DeleteAllForLocation(string location, List<Tenko.Lite.Models.ScanRecord> allHistory) { }
+
+    public string RenameLocationBin(
+        string location, string newName, List<Tenko.Lite.Models.ScanRecord> allHistory) => string.Empty;
+
+    public bool CheckBinExists(string location) => false;
 }

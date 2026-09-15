@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -152,6 +154,16 @@ namespace Tenko.Lite.ViewModels
 
         public bool IsFiltered => !string.IsNullOrWhiteSpace(SearchText);
 
+        /// <summary>
+        /// 現在場所の総件数（絞り込みの影響を受けない累計）
+        /// </summary>
+        public int CurrentLocationCount => _allHistory.Count(h => h.Location == CurrentLocation);
+
+        /// <summary>
+        /// 絞り込み後の表示件数
+        /// </summary>
+        public int FilteredCount => History.Count;
+
         public string CurrentLocation
         {
             get => _currentLocation;
@@ -235,6 +247,11 @@ namespace Tenko.Lite.ViewModels
             set => SetProperty(ref _isNotificationVisible, value);
         }
 
+        /// <summary>
+        /// エクスポート先ディレクトリ。未指定ならマイドキュメント配下の「Tenko出力」を使う
+        /// </summary>
+        public string? ExportDirectory { get; set; }
+
         #endregion
 
         #region Commands
@@ -280,6 +297,10 @@ namespace Tenko.Lite.ViewModels
             {
                 action();
             }
+            else if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                // 終了処理中は Invoke が例外になるため何もしない
+            }
             else
             {
                 dispatcher.Invoke(action);
@@ -317,6 +338,9 @@ namespace Tenko.Lite.ViewModels
 
                 History.Add(item);
             }
+
+            OnPropertyChanged(nameof(CurrentLocationCount));
+            OnPropertyChanged(nameof(FilteredCount));
         }
 
         public void SubmitManualInput()
@@ -324,7 +348,19 @@ namespace Tenko.Lite.ViewModels
             if (string.IsNullOrWhiteSpace(ManualInput)) return;
 
             string input = ManualInput;
-            var result = _scanProcessor.ProcessScan(input, CurrentLocation, _allHistory);
+
+            ScanResult result;
+            try
+            {
+                result = _scanProcessor.ProcessScan(input, CurrentLocation, _allHistory);
+            }
+            catch (Exception ex)
+            {
+                // 保存失敗時も入力値は消さず、再試行できるようにする
+                Debug.WriteLine($"[MainViewModel] スキャン保存に失敗: {ex}");
+                _notificationService.Error("保存に失敗しました。ディスクの空き容量と書き込み権限を確認してください。");
+                return;
+            }
 
             switch (result.Status)
             {
@@ -338,6 +374,9 @@ namespace Tenko.Lite.ViewModels
 
                         // ハイライトフラグを付与 (フェードアウトは XAML Storyboard で実行)
                         result.Record.IsRecentlyAdded = true;
+
+                        OnPropertyChanged(nameof(CurrentLocationCount));
+                        OnPropertyChanged(nameof(FilteredCount));
                     }
                     ManualInput = string.Empty;
                     break;
@@ -375,13 +414,37 @@ namespace Tenko.Lite.ViewModels
 
             try
             {
-                _scanProcessor.DeleteRecord(record, _allHistory);
-                History.Remove(record);
-                _notificationService.Success("1件削除しました。");
+                if (!_scanProcessor.DeleteRecord(record, _allHistory, out bool binMismatch))
+                {
+                    // 表示中のインスタンスと実データがずれている可能性があるため表示を作り直す
+                    RefreshHistoryView();
+                    _notificationService.Warning("対象の履歴が見つかりませんでした。表示を更新しました。");
+                    return;
+                }
+
+                // 参照ではなく Id で一致する要素を表示からも取り除く
+                var target = History.FirstOrDefault(h => h.Id == record.Id);
+                if (target != null)
+                {
+                    History.Remove(target);
+                }
+
+                OnPropertyChanged(nameof(CurrentLocationCount));
+                OnPropertyChanged(nameof(FilteredCount));
+
+                if (binMismatch)
+                {
+                    _notificationService.Warning("履歴は削除しましたが、BINファイル側の対応データを特定できませんでした。");
+                }
+                else
+                {
+                    _notificationService.Success("1件削除しました。");
+                }
             }
             catch (Exception ex)
             {
-                _notificationService.Error($"削除失敗: {ex.Message}");
+                Debug.WriteLine($"[MainViewModel] 削除に失敗: {ex}");
+                _notificationService.Error("削除に失敗しました。");
             }
         }
 
@@ -404,12 +467,15 @@ namespace Tenko.Lite.ViewModels
             {
                 _scanProcessor.DeleteAllForLocation(CurrentLocation, _allHistory);
                 History.Clear();
+                OnPropertyChanged(nameof(CurrentLocationCount));
+                OnPropertyChanged(nameof(FilteredCount));
                 CheckBinFile();
                 _notificationService.Success($"現在の「{CurrentLocation}」の履歴を削除しました。");
             }
             catch (Exception ex)
             {
-                _notificationService.Error($"履歴削除失敗: {ex.Message}");
+                Debug.WriteLine($"[MainViewModel] 履歴削除に失敗: {ex}");
+                _notificationService.Error("履歴の削除に失敗しました。");
             }
         }
 
@@ -456,13 +522,32 @@ namespace Tenko.Lite.ViewModels
 
             try
             {
-                string fileName = _exportService.ExportCsv(CurrentLocation, History);
-                _notificationService.Success($"{fileName} を出力しました。");
+                string outputDir = GetExportDirectory();
+                string fileName = _exportService.ExportCsv(CurrentLocation, History, outputDir);
+                _notificationService.Success($"{Path.Combine(outputDir, fileName)} に出力しました。");
             }
             catch (Exception ex)
             {
-                _notificationService.Error($"CSV出力失敗: {ex.Message}");
+                Debug.WriteLine($"[MainViewModel] CSV出力に失敗: {ex}");
+                _notificationService.Error("CSVの出力に失敗しました。");
             }
+        }
+
+        /// <summary>
+        /// 書き込み可能な出力先を返し、無ければ作成する。未指定ならマイドキュメント配下を使う
+        /// </summary>
+        private string GetExportDirectory()
+        {
+            string dir = string.IsNullOrWhiteSpace(ExportDirectory)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Tenko出力")
+                : ExportDirectory;
+
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            return dir;
         }
 
         private void ExportBin()
@@ -471,12 +556,14 @@ namespace Tenko.Lite.ViewModels
 
             try
             {
-                string fileName = _exportService.ExportBin(CurrentLocation, History);
-                _notificationService.Success($"{fileName} を出力しました。");
+                string outputDir = GetExportDirectory();
+                string fileName = _exportService.ExportBin(CurrentLocation, History, outputDir);
+                _notificationService.Success($"{Path.Combine(outputDir, fileName)} に出力しました。");
             }
             catch (Exception ex)
             {
-                _notificationService.Error($"BIN出力失敗: {ex.Message}");
+                Debug.WriteLine($"[MainViewModel] BIN出力に失敗: {ex}");
+                _notificationService.Error("BINの出力に失敗しました。");
             }
         }
 

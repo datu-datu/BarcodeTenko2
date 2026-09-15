@@ -85,21 +85,56 @@ namespace Tenko.Lite.Services
             };
 
             allHistory.Insert(0, record);
-            _historyService.SaveHistory(allHistory);
-            _scanFileService.AppendLast5(location, last5);
+
+            // 片方だけ書き込まれた状態を残さないよう、失敗時は全ロールバックして呼び出し側へ通知する
+            bool binAppended = false;
+            try
+            {
+                _scanFileService.AppendLast5(location, last5);
+                binAppended = true;
+                _historyService.SaveHistory(allHistory);
+            }
+            catch
+            {
+                allHistory.RemoveAll(h => h.Id == record.Id);
+
+                // SaveHistory は成功時のみ置換されるため、失敗時に戻す必要があるのは追記済みの BIN だけ
+                if (binAppended)
+                {
+                    try { _scanFileService.RemoveLast5(location, last5); } catch { /* ロールバック失敗は無視 */ }
+                }
+
+                throw;
+            }
+
             _serverSyncService?.EnqueueRecord(record);
 
             return ScanResult.Ok(record);
         }
 
-        public void DeleteRecord(ScanRecord record, List<ScanRecord> allHistory)
+        public bool DeleteRecord(ScanRecord record, List<ScanRecord> allHistory, out bool binMismatch)
         {
-            if (record == null) return;
+            binMismatch = false;
+            if (record == null) return false;
 
-            allHistory.Remove(record);
+            // 削除前に履歴と BIN の件数を突き合わせ、対応関係が崩れていないか確認する
+            int historyCount = allHistory.Count(h => h.Location == record.Location && h.Last5 == record.Last5);
+            int binCount = _scanFileService.CountLast5(record.Location, record.Last5);
+
+            if (allHistory.RemoveAll(h => h.Id == record.Id) == 0)
+            {
+                return false;
+            }
+
             _historyService.SaveHistory(allHistory);
-            _scanFileService.RemoveLast5(record.Location, record.Last5);
-            PropagateServerDeletion(record.Id);
+
+            if (!_scanFileService.RemoveLast5(record.Location, record.Last5) || binCount != historyCount)
+            {
+                binMismatch = true;
+            }
+
+            PropagateServerDeletions(new[] { record.Id });
+            return true;
         }
 
         public void DeleteAllForLocation(string location, List<ScanRecord> allHistory)
@@ -111,10 +146,8 @@ namespace Tenko.Lite.Services
                 .Select(h => h.Id)
                 .ToList();
 
-            foreach (var id in removedIds)
-            {
-                PropagateServerDeletion(id);
-            }
+            // 件数分ループせず、まとめて 1 回で伝播する
+            PropagateServerDeletions(removedIds);
 
             allHistory.RemoveAll(h => h.Location == location);
             _historyService.SaveHistory(allHistory);
@@ -144,12 +177,18 @@ namespace Tenko.Lite.Services
             return _scanFileService.Exists(location);
         }
 
-        private void PropagateServerDeletion(string recordId)
+        /// <summary>
+        /// 削除 ID 群をまとめてサーバーへ伝播する。送信キューから除去できなかった ID のみ削除キューへ積む
+        /// </summary>
+        private void PropagateServerDeletions(IReadOnlyCollection<string> recordIds)
         {
-            if (_serverSyncService == null || string.IsNullOrWhiteSpace(recordId)) return;
-            if (!_serverSyncService.RemovePendingRecord(recordId))
+            if (_serverSyncService == null || recordIds.Count == 0) return;
+
+            var removed = _serverSyncService.RemovePendingRecords(recordIds);
+            var remaining = recordIds.Where(id => !removed.Contains(id)).ToList();
+            if (remaining.Count > 0)
             {
-                _serverSyncService.EnqueueDeletion(recordId);
+                _serverSyncService.EnqueueDeletions(remaining);
             }
         }
     }

@@ -31,7 +31,7 @@ namespace Tenko.Lite.Services
     {
         List<ScanRecord> LoadHistory();
         ScanResult ProcessScan(string barcode, string location, List<ScanRecord> allHistory);
-        void DeleteRecord(ScanRecord record, List<ScanRecord> allHistory);
+        bool DeleteRecord(ScanRecord record, List<ScanRecord> allHistory, out bool binMismatch);
         void DeleteAllForLocation(string location, List<ScanRecord> allHistory);
         string RenameLocationBin(string location, string newName, List<ScanRecord> allHistory);
         bool CheckBinExists(string location);

@@ -24,14 +24,16 @@ namespace Tenko.Lite.Services
             _storage.AppendAllBytes(GetFilePath(location), BitConverter.GetBytes(last5));
         }
 
-        public void RemoveLast5(string location, ushort last5)
+        /// <summary>
+        /// 末尾から走査して最後に一致する 2 バイトを除去する。除去できた場合のみ true を返す
+        /// </summary>
+        public bool RemoveLast5(string location, ushort last5)
         {
-            if (string.IsNullOrEmpty(location)) return;
+            if (string.IsNullOrEmpty(location)) return false;
             string path = GetFilePath(location);
             byte[] data = _storage.ReadAllBytes(path);
-            if (data.Length == 0 || data.Length % 2 != 0) return;
+            if (data.Length == 0 || data.Length % 2 != 0) return false;
 
-            // 末尾から走査して最後に一致する 2 バイトを除去する
             int count = data.Length / 2;
             int target = -1;
             for (int i = count - 1; i >= 0; i--)
@@ -42,13 +44,34 @@ namespace Tenko.Lite.Services
                     break;
                 }
             }
-            if (target < 0) return;
+            if (target < 0) return false;
 
             var result = new byte[data.Length - 2];
             int headLength = target * 2;
             Buffer.BlockCopy(data, 0, result, 0, headLength);
             Buffer.BlockCopy(data, headLength + 2, result, headLength, data.Length - headLength - 2);
             _storage.WriteAllBytes(path, result);
+            return true;
+        }
+
+        /// <summary>
+        /// 指定値が BIN 内に何個含まれるかを数える（履歴との件数突き合わせ用）
+        /// </summary>
+        public int CountLast5(string location, ushort last5)
+        {
+            if (string.IsNullOrEmpty(location)) return 0;
+            byte[] data = _storage.ReadAllBytes(GetFilePath(location));
+            if (data.Length == 0 || data.Length % 2 != 0) return 0;
+
+            int count = 0;
+            for (int i = 0; i < data.Length / 2; i++)
+            {
+                if (BitConverter.ToUInt16(data, i * 2) == last5)
+                {
+                    count++;
+                }
+            }
+            return count;
         }
 
         public void DeleteBin(string location) => _storage.Delete(GetFilePath(location));

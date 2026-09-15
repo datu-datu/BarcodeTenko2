@@ -94,7 +94,7 @@
                         <TextBlock Text="累計" FontSize="12" Margin="0,0,0,5" Foreground="{StaticResource TextSecondaryBrush}"/>
                         <Border Background="#F0F0F0" Padding="10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,0,0,15">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="{Binding History.Count}" FontSize="24" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="{Binding CurrentLocationCount}" FontSize="24" Foreground="{StaticResource TextPrimaryBrush}"/>
                                 <TextBlock Text=" 件" FontSize="12" VerticalAlignment="Bottom" Margin="4,0,0,4" Foreground="{StaticResource TextSecondaryBrush}"/>
                             </StackPanel>
                         </Border>
@@ -114,7 +114,9 @@
                                 <TextBlock Text="履歴の絞り込み" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
                                 <Border DockPanel.Dock="Right" Background="#E8F5E9" Padding="5,1" CornerRadius="2"
                                         Visibility="{Binding IsFiltered, Converter={StaticResource BoolToVis}}">
-                                    <TextBlock Text="絞り込み中" FontSize="10" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold"/>
+                                    <TextBlock FontSize="10" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold">
+                                        <Run Text="絞り込み中 "/><Run Text="{Binding FilteredCount, Mode=OneWay}"/><Run Text=" 件"/>
+                                    </TextBlock>
                                 </Border>
                             </DockPanel>
 
@@ -204,7 +206,8 @@
                     <TextBlock Text="{Binding SyncStatusText}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                 </StatusBarItem>
                 <StatusBarItem>
-                    <TextBlock Text="{Binding NotificationMessage}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding NotificationMessage}" VerticalAlignment="Center"
+                               Foreground="{Binding NotificationType, Converter={StaticResource TypeToBrush}}"/>
                 </StatusBarItem>
             </DockPanel>
         </StatusBar>

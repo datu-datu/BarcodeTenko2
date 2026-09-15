@@ -42,13 +42,23 @@ namespace Tenko.Lite
             // 警告・エラー通知時の赤フラッシュアニメーション
             if (e.Type != NotificationType.Warning && e.Type != NotificationType.Error) return;
 
+            RunOnUi(FlashManualInput);
+        }
+
+        /// <summary>
+        /// 終了処理中は何もせず、必要な場合のみディスパッチャへ委譲する
+        /// </summary>
+        private void RunOnUi(Action action)
+        {
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+
             if (Dispatcher.CheckAccess())
             {
-                FlashManualInput();
+                action();
             }
             else
             {
-                Dispatcher.Invoke(FlashManualInput);
+                Dispatcher.Invoke(action);
             }
         }
 
@@ -72,7 +82,7 @@ namespace Tenko.Lite
                                 or nameof(MainViewModel.ShowBinWarning)
                                 or nameof(MainViewModel.ShowCompleteModal))
             {
-                Dispatcher.Invoke(TryFocusManualInput);
+                RunOnUi(TryFocusManualInput);
             }
         }
 
