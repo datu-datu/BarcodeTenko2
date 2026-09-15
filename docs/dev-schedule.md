@@ -44,7 +44,7 @@
 
 ## 引っ掛かりやすいポイント（注意）
 
-- **保存基準パス**: `AppDomain.CurrentDomain.BaseDirectory`。実行フォルダ配下に `data/` と `scans/` がある前提。
+- **保存基準パス**: `AppDomain.CurrentDomain.BaseDirectory` 直下の `kunugidasainotenko/`。その配下に `data/` と `scans/` がある前提。
 - **履歴は全場所共通**: 表示は場所でフィルタされるが保存は1本。
 - **退避はbinファイルのリネーム**: `ids_<場所>_<suffix>.bin` に変更。
 - **`students.passphrase` は配布不要**: ビルド時に埋め込まれる。

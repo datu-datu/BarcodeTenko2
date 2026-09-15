@@ -1,17 +1,19 @@
 # 点呼運用・データ管理手順
 
 ## 1. データ保存先（実行時）
-基準パスは `AppDomain.CurrentDomain.BaseDirectory`。
+基準パスは `AppDomain.CurrentDomain.BaseDirectory`。実行時データは、その直下の `kunugidasainotenko\` フォルダ配下に作成する。
 
 ```
 <実行フォルダ>\
-  data\
-    history.json        # 点呼履歴（JSON）
-    settings.json       # 最後に選んだ場所
-    locations.json      # 場所一覧
-    time.json           # 締切候補
-  scans\
-    ids_<場所>.bin       # 連続バイナリ（下5桁）
+  kunugidasainotenko\
+    data\
+      history.json        # 点呼履歴（JSON）
+      settings.json       # 最後に選んだ場所
+      locations.json      # 場所一覧
+      time.json           # 締切候補
+      students.enc        # 暗号化済み学生マスタ（Tenko.Native / ScanViewer）
+    scans\
+      ids_<場所>.bin      # 連続バイナリ（下5桁）
 ```
 
 ### history.json
@@ -25,7 +27,7 @@
 ## 2. 既存データがある時の退避
 
 ### 既存データ検出
-場所を選んだ直後、`scans\ids_<場所>.bin` が **存在かつ空でない** 場合に警告が出る。
+場所を選んだ直後、`kunugidasainotenko\scans\ids_<場所>.bin` が **存在かつ空でない** 場合に警告が出る。
 
 画面の選択肢:
 1. **名前を変更**  
@@ -39,7 +41,7 @@
 ## 3. 締切機能（time.json）
 
 ### 読み込み位置
-`data\time.json` を監視し、変更があれば即時反映する。
+`kunugidasainotenko\data\time.json` を監視し、変更があれば即時反映する。
 
 ### フォーマット
 以下のどれでも可。
@@ -63,11 +65,11 @@
 - `data\locations.json` をビルド時に読み込み、`EmbeddedLocations.g.cs` としてバイナリに直接埋め込みます。
 
 ### 実行時読み込み
-- 実行フォルダの `data\locations.json` が存在すればそちらを優先して読み込みます。
-- 実行フォルダに `data\locations.json` が無い場合は、ビルド時に埋め込まれた既定の点呼場所リストが自動的に使用（およびファイル生成）されます。
+- `kunugidasainotenko\data\locations.json` が存在すればそちらを優先して読み込みます。
+- 存在しない場合は、ビルド時に埋め込まれた既定の点呼場所リストが自動的に使用（およびファイル生成）されます。
 
 ### 現在の選択場所
-`data\settings.json` に保存され、次回起動時に復元されます。
+`kunugidasainotenko\data\settings.json` に保存され、次回起動時に復元されます。
 
 ## 5. スキャン入力のルール
 

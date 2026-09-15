@@ -160,7 +160,7 @@ dotnet publish src/Tenko.Lite -c Release -o dist/Tenko.Lite
 | ファイル / フォルダ | 配布が必要か | 説明 |
 |---|:---:|---|
 | `Tenko.Native.exe` | **必須** | 単一実行ファイル（パスフレーズ・場所・サーバー設定埋め込み済み） |
-| `data/students.enc` | **必須** | 暗号化済み学生データ（自動コピーされます） |
+| `kunugidasainotenko/data/students.enc` | **必須** | 暗号化済み学生データ（自動コピーされます） |
 | `data/students.passphrase` | **配布禁止 ❌** | ビルド時に埋め込まれているため不要・漏洩防止 |
 | `data/students.csv` | **配布禁止 ❌** | 平文の個人情報のため配布しない |
 | `data/server.json` | **配布禁止 ❌** | ビルド時に埋め込まれているため不要・APIキー保護 |
@@ -182,13 +182,15 @@ dotnet publish src/Tenko.Lite -c Release -o dist/Tenko.Lite
 4. **点呼完了・退避**:
    - 「点呼完了」ボタンを押してサフィックス（例: `午前`, `午後`）を指定すると、現在のバイナリデータを別名退避し、履歴をリセットして次の点呼を開始できます。
 5. **締切時間の設定（任意）**:
-   - 実行フォルダの `data/time.json` に `["2026-04-01-10-00", "2026-04-01-15-00"]` 形式で日時を記述すると、画面左下に締切時刻が表示されます。
+   - 実行フォルダの `kunugidasainotenko/data/time.json` に `["2026-04-01-10-00", "2026-04-01-15-00"]` 形式で日時を記述すると、画面左下に締切時刻が表示されます。
 
 ---
 
 ## 📊 データ構造とファイル仕様
 
-| 種類 | パス（実行フォルダ基準） | フォーマット / 説明 |
+実行時データ（`data/` と `scans/`）は、実行フォルダ直下の **`kunugidasainotenko/`** フォルダ配下に作成されます。
+
+| 種類 | パス（`kunugidasainotenko/` 基準） | フォーマット / 説明 |
 |---|---|---|
 | スキャンバイナリ | `scans/ids_<場所>.bin` | 学籍番号下5桁を UInt16 Little Endian (2バイト) で連続記録 |
 | 履歴JSON | `data/history.json` | 全場所のスキャン日時・バーコード・氏名等の履歴ログ |
@@ -196,6 +198,7 @@ dotnet publish src/Tenko.Lite -c Release -o dist/Tenko.Lite
 | 場所設定 | `data/settings.json` | 最後に選択した点呼場所 |
 | 場所リスト | `data/locations.json` | 実行時の点呼場所候補（配置しない場合は埋め込み値を使用） |
 | 締切時間 | `data/time.json` | 締切時刻候補リスト |
+| 学生データ | `data/students.enc` | 暗号化済み学生マスタ（Tenko.Native / ScanViewer。ビルド時に同梱） |
 
 ---
 

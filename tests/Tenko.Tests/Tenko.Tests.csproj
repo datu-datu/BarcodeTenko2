@@ -25,7 +25,7 @@
   <ItemGroup>
     <None Include="..\..\data\students.enc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>data\students.enc</Link>
+      <Link>kunugidasainotenko\data\students.enc</Link>
     </None>
   </ItemGroup>
 

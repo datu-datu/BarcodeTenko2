@@ -6,18 +6,18 @@
 > サーバーには学籍番号のみの `data/students.txt`（1行1番号）を配置してください。詳細は [tenkoserver-guide.md](tenkoserver-guide.md) を参照。
 
 ## 前提
-- 学生マスタは **実行時** に `data\students.enc` を復号して読み込む。
+- 学生マスタは **実行時** に `kunugidasainotenko\data\students.enc` を復号して読み込む。
 - 復号鍵は **ビルド時** に `data\students.passphrase` から読み込み、実行ファイルへ埋め込む。
 - 実行時に `students.passphrase` は参照しない。
-- 基準パスは `AppDomain.CurrentDomain.BaseDirectory`。
+- 基準パスは `AppDomain.CurrentDomain.BaseDirectory`。実行時データ（`data\` / `scans\`）は、その直下の `kunugidasainotenko\` フォルダ配下に置く。
 
 ## どのファイルが使われるか
 
 | ファイル | 役割 | 参照タイミング |
 | --- | --- | --- |
-| `data\students.csv` | 暗号化の元データ | 暗号化スクリプト実行時のみ |
-| `data\students.enc` | 暗号化済みマスタ | アプリ起動時に読み込む |
-| `data\students.passphrase` | 復号鍵 | **ビルド時**に読み込んで埋め込む |
+| `data\students.csv` | 暗号化の元データ（リポジトリ） | 暗号化スクリプト実行時のみ |
+| `kunugidasainotenko\data\students.enc` | 暗号化済みマスタ（実行フォルダ） | アプリ起動時に読み込む |
+| `data\students.passphrase` | 復号鍵（リポジトリ） | **ビルド時**に読み込んで埋め込む |
 
 ## 実行時の参照先（フォルダ階層）
 
@@ -25,20 +25,22 @@
 実行ファイルの場所は `bin\Debug\net8.0-windows\win-x64\`。
 
 ```
-<repo>\bin\Debug\net8.0-windows\win-x64\
+<repo>\src\Tenko.Native\bin\Debug\net8.0-windows\win-x64\
   Tenko.Native.exe
-  data\
-    students.enc
+  kunugidasainotenko\
+    data\
+      students.enc
 ```
 
 ### `dotnet publish -c Release` 時
 出力先は `bin\Release\net8.0-windows\win-x64\publish\`。
 
 ```
-<repo>\bin\Release\net8.0-windows\win-x64\publish\
+<repo>\src\Tenko.Native\bin\Release\net8.0-windows\win-x64\publish\
   Tenko.Native.exe
-  data\
-    students.enc
+  kunugidasainotenko\
+    data\
+      students.enc
 ```
 
 > 注意: `students.enc` は **ビルド/パブリッシュ時に自動コピー**される。  

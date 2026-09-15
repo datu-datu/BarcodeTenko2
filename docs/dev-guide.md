@@ -9,11 +9,12 @@
    - 入力: バーコード（5桁/10桁）を受付
    - 出力: 履歴の保存、CSV/BIN出力、検索、削除、締切表示、場所設定
 2. **データ設計**
-   - `history.json`（全履歴）
+   - 実行フォルダ直下の `kunugidasainotenko/` フォルダ配下に配置
+   - `data/history.json`（全履歴）
    - `scans/ids_<場所>.bin`（下5桁の連続バイナリ）
-   - `locations.json`（場所一覧）
-   - `settings.json`（現在の場所）
-   - `time.json`（締切候補）
+   - `data/locations.json`（場所一覧）
+   - `data/settings.json`（現在の場所）
+   - `data/time.json`（締切候補）
 3. **UI設計**
    - 入力欄、履歴テーブル、検索、エクスポート、完了/退避、設定モーダル
 4. **実装**

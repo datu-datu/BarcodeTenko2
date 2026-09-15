@@ -44,17 +44,17 @@
   - writes both `history.json` and `scans/ids_<location>.bin`
   - supports search/filter, export, per-record delete, location-scoped delete-all, and rename/archive flow
 
-- Persistence is portable and always relative to `AppDomain.CurrentDomain.BaseDirectory`:
-  - `data/settings.json` (selected location)
-  - `data/locations.json` (location list)
-  - `data/history.json` (JSON records)
-  - `data/students.enc` (encrypted student lookup table)
-  - `data/time.json` (deadline candidates)
-  - `scans/ids_<location>.bin` (binary append log)
+- Persistence is portable and always under `<AppDomain.CurrentDomain.BaseDirectory>/kunugidasainotenko` (`StorageService.RootFolderName`):
+  - `kunugidasainotenko/data/settings.json` (selected location)
+  - `kunugidasainotenko/data/locations.json` (location list)
+  - `kunugidasainotenko/data/history.json` (JSON records)
+  - `kunugidasainotenko/data/students.enc` (encrypted student lookup table; shipped next to the exe via the csproj `<Link>`)
+  - `kunugidasainotenko/data/time.json` (deadline candidates)
+  - `kunugidasainotenko/scans/ids_<location>.bin` (binary append log)
 
 ## Key repo conventions
 
-- **Binary scan format is strict**: append `Last5` as UInt16 little-endian (2 bytes) into `scans/ids_<location>.bin` (README + `ScanFileService`).
+- **Binary scan format is strict**: append `Last5` as UInt16 little-endian (2 bytes) into `kunugidasainotenko/scans/ids_<location>.bin` (README + `ScanFileService`).
 - **History is global, UI is location-scoped**: `_allHistory` stores full JSON history; UI `History` is filtered by current `Location` and `SearchText`.
 - **Location is mandatory for operations**: scanning/export/delete actions are guarded by `IsLocationSet`, and warning notifications are used when missing.
 - **Rename/archive semantics**: renaming an existing bin creates `ids_<location>_<suffix>.bin`; after rename, current-location history is cleared to start a new measurement cycle.

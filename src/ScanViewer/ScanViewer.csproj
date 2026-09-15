@@ -8,7 +8,7 @@
     <None Include="..\..\data\students.enc">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <Link>data\students.enc</Link>
+      <Link>kunugidasainotenko\data\students.enc</Link>
     </None>
   </ItemGroup>
 

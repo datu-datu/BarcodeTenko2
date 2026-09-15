@@ -7,21 +7,29 @@ namespace Tenko.Lite.Services
 {
     public class StorageService
     {
+        /// <summary>
+        /// data / scans をまとめる親フォルダ名
+        /// </summary>
+        public const string RootFolderName = "kunugidasainotenko";
+
         private readonly string _baseDir;
         private readonly string _dataDir;
         private readonly string _scansDir;
 
         public StorageService(string? baseDir = null)
         {
+            // 実行フォルダ直下に親フォルダを作り、その配下に data / scans を置く
             _baseDir = baseDir ?? AppDomain.CurrentDomain.BaseDirectory;
-            _dataDir = Path.Combine(_baseDir, "data");
-            _scansDir = Path.Combine(_baseDir, "scans");
+            string rootDir = Path.Combine(_baseDir, RootFolderName);
+            _dataDir = Path.Combine(rootDir, "data");
+            _scansDir = Path.Combine(rootDir, "scans");
 
             EnsureDirectories();
         }
 
         private void EnsureDirectories()
         {
+            // CreateDirectory は中間フォルダも作成するため、親フォルダの明示的な作成は不要
             if (!Directory.Exists(_dataDir)) Directory.CreateDirectory(_dataDir);
             if (!Directory.Exists(_scansDir)) Directory.CreateDirectory(_scansDir);
         }

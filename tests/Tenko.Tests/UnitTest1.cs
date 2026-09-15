@@ -393,6 +393,36 @@ public class TenkoTests : IDisposable
     }
 
     [Fact]
+    public void StorageService_CreatesDataAndScansUnderKunugidasainotenko()
+    {
+        string baseDir = Path.Combine(Path.GetTempPath(), "TenkoStorage_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            AssertLayout(
+                new Tenko.Native.Services.StorageService(baseDir).GetDataPath("history.json"),
+                new Tenko.Native.Services.StorageService(baseDir).GetScanPath("ids_test.bin"),
+                baseDir);
+            AssertLayout(
+                new Tenko.Lite.Services.StorageService(baseDir).GetDataPath("history.json"),
+                new Tenko.Lite.Services.StorageService(baseDir).GetScanPath("ids_test.bin"),
+                baseDir);
+        }
+        finally
+        {
+            if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+        }
+
+        // data / scans が "kunugidasainotenko" 親フォルダ配下に作られることを検証する
+        static void AssertLayout(string dataPath, string scanPath, string root)
+        {
+            Assert.Equal(Path.Combine(root, "kunugidasainotenko", "data"), Path.GetDirectoryName(dataPath));
+            Assert.Equal(Path.Combine(root, "kunugidasainotenko", "scans"), Path.GetDirectoryName(scanPath));
+            Assert.True(Directory.Exists(Path.Combine(root, "kunugidasainotenko", "data")));
+            Assert.True(Directory.Exists(Path.Combine(root, "kunugidasainotenko", "scans")));
+        }
+    }
+
+    [Fact]
     public void EmbeddedLocations_ReturnsConfiguredLocations()
     {
         var locations = Tenko.Native.Generated.EmbeddedLocations.GetLocations();
