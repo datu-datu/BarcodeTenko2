@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\Tenko.Native\Tenko.Native.csproj" />
     <ProjectReference Include="..\..\src\Tenko.Lite\Tenko.Lite.csproj" />
     <ProjectReference Include="..\..\src\TenkoServer\TenkoServer.csproj" />
+    <ProjectReference Include="..\..\src\ScanViewer\ScanViewer.csproj" />
   </ItemGroup>
 
   <ItemGroup>

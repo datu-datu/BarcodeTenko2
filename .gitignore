@@ -26,4 +26,4 @@ tools/data/
 .idea/
 *.swp
 *.LNK
-
+.commandcode/
