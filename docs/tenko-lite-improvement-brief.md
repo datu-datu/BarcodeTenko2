@@ -4,17 +4,30 @@
 - **対象ブランチ**: `refactor/tenko-native-redesign`
 - **対象スコープ**: `src/Tenko.Lite` およびテスト `tests/Tenko.Tests`
 - **目的**: 「削除機能」の堅牢化、メモリ／リソースリーク対策、UI・操作性改善、軽微なバグ修正
-- **作成時点の状態**: Debug/Release ビルド成功、`dotnet test` 36 件すべて合格
+- **作成時点の状態**: Debug/Release ビルド成功、既存テストすべて合格（件数は §1 の手順で各自が確認すること。本書では件数を固定しない）
 
 ---
 
-## 0. 最初にやること
+## 0. 最初にやること（作業プロトコル）
 
-1. 本ドキュメントの §5「対応済み」を読み、**同じ修正を繰り返さない**こと。
-2. §1 の検証コマンドでベースライン（ビルド成功・テスト 36 件合格）を確認する。
-3. §7「変更禁止」を読む。ここに挙げた形式は外部互換があるため変更不可。
-4. §4 の優先度表に従い、**P0 → P1 → P2** の順で 1 タスクずつ実施する。
-5. 各タスク完了ごとにビルドとテストを実行し、壊れていないことを確認してから次へ進む。
+1. §5「対応済み」を読み、**同じ修正を繰り返さない**こと。
+2. §7「変更禁止」を読む。ここに挙げた形式は外部互換があるため変更不可。
+3. §1 の検証コマンドでベースラインを確認し、**合格件数を記録**する（以降の比較基準にする）。
+4. **タスクは 1 件ずつ実施する。**
+   - ユーザーがタスク ID（例: 「A-1 と C-4 をやって」）を指定した場合は、**そのタスクだけ**を実施する。
+   - 指定がなければ §4 の優先度表に従い **P0 → P1 → P2** の順で 1 件ずつ進める。
+   - **全タスクを一度に実施しない。** 1 タスク完了 → 報告、の繰り返しとする。
+5. **変更前に必ず対象ファイルを読むこと。** 本書の記述とコードが異なる場合は、**コードを正**とし、差異を報告に含める。
+6. 各タスク完了ごとにビルドとテストを実行し、ベースラインから壊れていないことを確認してから次へ進む。
+7. 各タスクの完了時に、以下の形式で簡潔に報告する:
+
+```
+- 実施タスク: [ID] [タイトル]
+- 変更ファイル: [パスの箇条書き]
+- 追加/更新テスト: [テスト名と件数]
+- 検証結果: ビルド [成功/失敗] / テスト [合格 n 件・失敗 n 件]
+- 見送り・補足: [あれば理由付きで]
+```
 
 ---
 
@@ -22,19 +35,21 @@
 
 - Windows + .NET 8 SDK（開発機は SDK 9.0.313 でビルド確認済み）。WPF のため Windows 以外ではビルド不可。
 - ビルド時に PowerShell スクリプトが実行され、`data/locations.json` と `data/server.json` が埋め込みコードとして生成される（`tools/Generate-EmbeddedLocations.ps1` / `tools/Generate-EmbeddedServerConfig.ps1`）。`data/` が無いとビルドは失敗する。
-- 検証コマンド:
+- 検証コマンド（リポジトリルートで実行）:
 
 ```powershell
 # ビルド
 dotnet build src/Tenko.Lite/Tenko.Lite.csproj -c Debug
 
-# テスト（既存 36 件が合格すること）
+# テスト（既存テストがすべて合格すること。初回実行の合格件数をベースラインとして記録する）
 dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
+
+# UI の目視確認が必要な場合
+dotnet run --project src/Tenko.Lite/Tenko.Lite.csproj -c Debug
 ```
 
-- ビルド時の `[Generate-Embedded*] ... loaded and embedded` 警告 4 件は**正常**（既存の仕様）。エラーではない。
-- 統合テストは `Tenko.Native` / `TenkoServer` / `ScanViewer` も参照するため、テスト実行には全プロジェクトのビルドが含まれる。
-- **変更前に必ず対象ファイルを読むこと。**
+- ビルド時の `[Generate-Embedded*] ... loaded and embedded` 警告 4 件は**正常**（既存の仕様）。エラーではない。消そうとしない。
+- テストプロジェクトは **Lite 以外のテストも含む**（`UnitTest1.cs` = Native/Lite、`ScanViewerTests.cs`、`TenkoServerTests.cs`）。`dotnet test` はこれら全件を実行する。Lite の変更で他プロジェクトのテストが失敗した場合は意図しない影響が出ているため、変更を見直すこと。
 
 ---
 
@@ -61,7 +76,7 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 | JSON 設定の一元化 | `src/Tenko.Lite/Infrastructure/JsonHelper.cs` |
 | MVVM 基盤（`RelayCommand` / `ViewModelBase`） | `src/Tenko.Lite/Common/*.cs` |
 | 履歴 1 件のモデル | `src/Tenko.Lite/Models/ScanRecord.cs` |
-| テスト | `tests/Tenko.Tests/UnitTest1.cs` |
+| テスト（Native/Lite 用） | `tests/Tenko.Tests/UnitTest1.cs` |
 
 補足: Lite 版には **`StudentService`（氏名・出席番号の紐付け）が無い**。これは意図的な仕様であり、追加しないこと。
 
@@ -94,41 +109,45 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 
 ## 4. タスク優先度一覧
 
-| ID | 分類 | タイトル | 優先度 |
-| --- | --- | --- | --- |
-| A-1 | 削除 | 参照等価依存の削除を Id ベースに | P0 |
-| A-2 | 削除 | bin と history の不整合検出（`RemoveLast5` の戻り値化） | P0 |
-| A-3 | 削除 | サーバー削除伝播のバッチ化（ファイル I/O 削減） | P0 |
-| A-4 | 削除 | 複数選択削除 | P1 |
-| A-5 | 削除 | 削除コマンドの CanExecute とフィードバック | P1 |
-| A-6 | 削除 | 削除後の `History` 更新方針の統一 | P1 |
-| A-7 | 削除 | 削除のアンドゥ | P2 |
-| B-1 | メモリ | `MainWindow` の無条件 `Dispatcher.Invoke` をガード | P0 |
-| B-2 | メモリ | `RunOnUi` にシャットダウンガードを追加 | P0 |
-| B-3 | メモリ | 送信キュー `_pendingRecords` の上限設定 | P0 |
-| B-4 | メモリ | `_allHistory` の全件常駐と毎回全走査の改善 | P1 |
-| B-5 | メモリ | `IsRecentlyAdded` のリセット（Storyboard 再再生の抑止） | P1 |
-| B-6 | メモリ | Dispose の回帰テスト追加 | P1 |
-| B-7 | メモリ | `SaveHistory` の O(n²) 書き込み対策 | P2 |
-| C-1 | UI | 「累計」が絞り込みに追随してしまう | P0 |
-| C-2 | UI | 通知の色分け（`TypeToBrush`）が未配線 | P0 |
-| C-3 | UI | 出力先がカレントディレクトリ（書込不可の恐れ） | P0 |
-| C-4 | UI | CSV ヘッダ誤り（`Timestamp,ID` → 実体は Last5） | P0 |
-| C-5 | UI | 出力対象が絞り込み結果になっている／無言 return | P1 |
-| C-6 | UI | モーダルを Esc/Enter で操作できない | P1 |
-| C-7 | UI | 設定モーダル表示中に場所変更で警告モーダルが裏に隠れる | P1 |
-| C-8 | UI | 最小サイズ未指定・フォント小さめ・起動位置 | P1 |
-| C-9 | UI | 文言・エラーメッセージの改善 | P1 |
-| C-10 | UI | 重複スキャン時の明示 | P1 |
-| C-11 | UI | 場所の追加・編集 | P2 |
-| C-12 | UI | 空状態表示・並べ替え | P2 |
-| D-1 | 不具合 | `ProcessScan` の保存順序（history 先行で不整合） | P0 |
-| D-2 | 不具合 | `SubmitManualInput` が例外を捕捉していない | P0 |
-| D-3 | 不具合 | デバウンスが単一スロット（Native と非対称） | P1 |
-| D-4 | 不具合 | `RenameLocationBin` のサニタイズ・同名衝突 | P1 |
-| D-5 | 不具合 | 保存場所が `Locations` に無いと ComboBox が空表示 | P1 |
-| D-6 | 不具合 | 30 秒タイマーの空キュー時早期 return | P2 |
-| D-7 | 不具合 | 例外メッセージが技術的すぎる | P2 |
+凡例: ✅ = 完了、⬜ = 未着手
+
+| ID | 分類 | タイトル | 優先度 | 状態 |
+| --- | --- | --- | --- | --- |
+| A-1 | 削除 | 参照等価依存の削除を Id ベースに | P0 | ✅ 完了 |
+| A-2 | 削除 | bin と history の不整合検出（`RemoveLast5` の戻り値化） | P0 | ✅ 完了 |
+| A-3 | 削除 | サーバー削除伝播のバッチ化（ファイル I/O 削減） | P0 | ✅ 完了 |
+| A-4 | 削除 | 複数選択削除 | P1 | ⬜ 未着手 |
+| A-5 | 削除 | 削除コマンドの CanExecute とフィードバック | P1 | ⬜ 未着手 |
+| A-6 | 削除 | 削除後の `History` 更新方針の統一 | P1 | ⬜ 未着手 |
+| A-7 | 削除 | 削除のアンドゥ | P2 | ⬜ 未着手 |
+| B-1 | メモリ | `MainWindow` の無条件 `Dispatcher.Invoke` をガード | P0 | ✅ 完了 |
+| B-2 | メモリ | `RunOnUi` にシャットダウンガードを追加 | P0 | ✅ 完了 |
+| B-3 | メモリ | 送信キュー `_pendingRecords` の上限設定 | P0 | ✅ 完了 |
+| B-4 | メモリ | `_allHistory` の全件常駐と毎回全走査の改善 | P1 | ⬜ 未着手 |
+| B-5 | メモリ | `IsRecentlyAdded` のリセット（Storyboard 再再生の抑止） | P1 | ⬜ 未着手 |
+| B-6 | メモリ | Dispose の回帰テスト追加 | P1 | ✅ 完了 |
+| B-7 | メモリ | `SaveHistory` の O(n²) 書き込み対策 | P2 | ⬜ 未着手 |
+| C-1 | UI | 「累計」が絞り込みに追随してしまう | P0 | ✅ 完了 |
+| C-2 | UI | 通知の色分け（`TypeToBrush`）が未配線 | P0 | ✅ 完了 |
+| C-3 | UI | 出力先がカレントディレクトリ（書込不可の恐れ） | P0 | ✅ 完了 |
+| C-4 | UI | CSV ヘッダ誤り（`Timestamp,ID` → 実体は Last5） | P0 | ✅ 完了 |
+| C-5 | UI | 出力対象が絞り込み結果になっている／無言 return | P1 | ⬜ 未着手 |
+| C-6 | UI | モーダルを Esc/Enter で操作できない | P1 | ⬜ 未着手 |
+| C-7 | UI | 設定モーダル表示中に場所変更で警告モーダルが裏に隠れる | P1 | ⬜ 未着手 |
+| C-8 | UI | 最小サイズ未指定・フォント小さめ・起動位置 | P1 | ⬜ 未着手 |
+| C-9 | UI | 文言・エラーメッセージの改善 | P1 | ⬜ 未着手 |
+| C-10 | UI | 重複スキャン時の明示 | P1 | ⬜ 未着手 |
+| C-11 | UI | 場所の追加・編集 | P2 | ⬜ 未着手 |
+| C-12 | UI | 空状態表示・並べ替え | P2 | ⬜ 未着手 |
+| D-1 | 不具合 | `ProcessScan` の保存順序（history 先行で不整合） | P0 | ✅ 完了 |
+| D-2 | 不具合 | `SubmitManualInput` が例外を捕捉していない | P0 | ✅ 完了 |
+| D-3 | 不具合 | デバウンスが単一スロット（Native と非対称） | P1 | ⬜ 未着手 |
+| D-4 | 不具合 | `RenameLocationBin` のサニタイズ・同名衝突 | P1 | ⬜ 未着手 |
+| D-5 | 不具合 | 保存場所が `Locations` に無いと ComboBox が空表示 | P1 | ⬜ 未着手 |
+| D-6 | 不具合 | 30 秒タイマーの空キュー時早期 return | P2 | ⬜ 未着手 |
+| D-7 | 不具合 | 例外メッセージが技術的すぎる | P2 | ⬜ 未着手 |
+
+進捗: **P0 全 12 タスク完了**（P0 は A-1〜A-3 / B-1〜B-3 / C-1〜C-4 / D-1〜D-2。B-6 も完了）。P1・P2 は未着手。
 
 ---
 
@@ -139,7 +158,7 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 - `MainViewModel` は `IDisposable` を実装済み。`ClockService.OnTick` / `ServerSyncService.OnStatusChanged` / `NotificationService.OnNotification` の購読解除と `_notificationTimer` の停止を `Dispose()` で実施済み。
 - 購読はラムダではなくメソッド参照（`OnClockTick` / `OnSyncStatusChanged` / `OnNotificationReceived`）に変更済み。
 - `MainWindow.Closed` から `_viewModel.Dispose()` を呼ぶように接続済み。
-- UI スレッド委譲は `MainViewModel.RunOnUi(Action)` に集約済み。
+- UI スレッド委譲は `MainViewModel.RunOnUi(Action)` に集約済み（`private static`）。
 - `MainViewModel.RefreshHistoryView` は `ToLower()` を 1 回だけ計算し、LINQ と中間 `List` を排除済み。
 - `ScanProcessor` の下 5 桁解析は `Substring` ではなく `barcode.AsSpan(...)` + `ushort.TryParse` に変更済み。
 - `ScanFileService.RemoveLast5` はバイト配列を直接操作（`List<ushort>` と LINQ を排除）済み。
@@ -147,11 +166,36 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 - `ServerSyncService` は注入された `HttpClient` を `Dispose` しないよう所有権を修正済み（`_ownsHttpClient`）。
 - 未使用の `StorageService.GetScanFiles`、`SettingsService` の重複初期代入、不要な `using` は削除済み。
 
+### 今回対応済み（P0・2026-09-15）
+
+以下は本指示書に沿って実装済み。**やり直さないこと。** テストは `tests/Tenko.Tests/UnitTest1.cs` に追加済み（ビルド成功・全 44 件合格）。
+
+- **A-1**: `IScanProcessor.DeleteRecord` を `bool DeleteRecord(ScanRecord, List<ScanRecord>, out bool binMismatch)` に変更。`Id` 一致で 1 件削除し、VM 側の `History` も Id 一致で除去。見つからない場合は表示を再構築して警告。
+- **A-2**: `ScanFileService.RemoveLast5` を `bool` 返却化し、`CountLast5` を追加。BIN から除去できない場合／BIN と履歴の件数が食い違う場合に `binMismatch` を立て、VM が警告。
+- **A-3**: `ServerSyncService` に `RemovePendingRecords(IEnumerable<string>)` / `EnqueueDeletions(IEnumerable<string>)` を追加。保存とステータス更新は各 1 回だけ。単発の `RemovePendingRecord` / `EnqueueDeletion` はバッチへ委譲。`ScanProcessor.PropagateServerDeletions` が ID 群をまとめて伝播。
+- **B-1**: `MainWindow` に `RunOnUi`（`CheckAccess` + `HasShutdownStarted/Finished` ガード）を追加し、通知フラッシュとフォーカス移動の両方で使用。
+- **B-2**: `MainViewModel.RunOnUi` にディスパッチャ停止ガードを追加（停止中は何もしない）。
+- **B-3**: `ServerSyncService` に `MaxPendingRecords` / `MaxPendingDeletions`（各 5000）を追加。超過時は古いものから破棄／追加を打ち切り、ステータスに「(上限超過)」を表示。
+- **B-6**: `Dispose` の回帰テストを追加（`TenkoLite_MainViewModel_DisposeStopsEventSubscriptions`）。
+- **C-1**: `MainViewModel.CurrentLocationCount`（現在場所の総件数）と `FilteredCount` を追加。「累計」は `CurrentLocationCount` にバインドし、絞り込み件数はバッジに「絞り込み中 n 件」として分離。
+- **C-2**: 未配線だった `TypeToBrush` をステータスバーの `Foreground` に接続（成功=緑 / 警告=橙 / エラー=赤）。
+- **C-3**: `MainViewModel.ExportDirectory`（既定: マイドキュメント配下の `Tenko出力`）を追加し、出力先を必ず作成。通知は絶対パス表示。テストから差し替え可能。
+- **C-4**: `ExportService.ExportCsv` のヘッダを `時刻,学籍番号` に修正し、BOM 付き UTF-8 で出力。
+- **D-1**: `ProcessScan` を「BIN 追記 → 履歴保存」の順に変更。失敗時は追記済み BIN をロールバックして例外を再送出（VM が通知）。
+- **D-2**: `SubmitManualInput` を try/catch し、入力値を保持したまま汎用の日本語メッセージでエラー通知。
+
+補足（未対応・申し送り）:
+
+- `Tenko.Native` 側の `ExportService` は旧ヘッダ `Timestamp,ID` のまま（スコープ外・未対応）。
+- UI 変更（C-1 / C-2）は XAML のコンパイル成功までの確認。実機での目視確認は未実施。
+
 ---
 
 ## 6. タスク詳細
 
 ### A. 削除機能の改善
+
+状態: **A-1 / A-2 / A-3 = ✅ 完了**、A-4 〜 A-7 = ⬜ 未着手
 
 #### A-1 [P0] 参照等価依存の削除を Id ベースに
 - **現状**: `ScanProcessor.DeleteRecord` は `allHistory.Remove(record)`、`MainViewModel.DeleteRecord` は `History.Remove(record)` を使用。`ScanRecord` は `Equals` をオーバーライドしていないため**参照等価**で削除される。
@@ -172,7 +216,7 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
   - `ScanProcessor.DeleteRecord` は、bin から除去できなかった場合に `MainViewModel` へ警告を伝える（例: 履歴と BIN の不整合）。
   - 可能なら削除前に「bin 内の該当値の個数」と「history 内の該当値の件数」を比較し、不一致なら警告する。
 - **変更候補**: `Services/ScanFileService.cs`, `Services/ScanProcessor.cs`, `ViewModels/MainViewModel.cs`
-- **受入基準**: 対象が無い／壊れた bin でも例外を出さず false を返す（既存テスト `ScanFileService_HandlesCorruptedOrEmptyFileGracefully` を壊さない）。不整合時に警告が出る。
+- **受入基準**: 対象が無い／壊れた bin でも例外を出さず false を返す（既存テスト `ScanFileService_HandlesCorruptedOrEmptyFileGracefully` を壊さない。`void` → `bool` の変更は戻り値を無視する既存呼び出しを壊さない）。不整合時に警告が出る。
 - **禁止**: bin のバイト形式（リトルエンディアン UInt16 の連結）は変更しない（§7）。
 
 #### A-3 [P0] サーバー削除伝播のバッチ化
@@ -183,8 +227,9 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
   - `ScanProcessor.DeleteAllForLocation` は ID リストをまとめて 1 回で伝播する。
   - ステータス更新（`UpdateStatus`）も最後に 1 回にまとめる。
 - **変更候補**: `Services/ServerSyncService.cs`, `Services/ScanProcessor.cs`
-- **受入基準**: 既存の `sync_queue.json` / `sync_deletes.json` の形式を維持したまま、N 件削除時の保存呼び出しが定数回になる（テストで検証可能なら検証する）。
-- **注意**: `SyncPendingAsync` / `FlushDeletionsAsync` の `SemaphoreSlim` による直列化は維持すること。
+- **受入基準**: 既存の `sync_queue.json` / `sync_deletes.json` の形式を維持したまま、N 件削除時の保存呼び出しが定数回になる。
+- **検証方法**: `SavePendingRecords` は private で回数を直接数えられないため、テストでは**バッチ API 呼び出し後の `sync_queue.json` / `sync_deletes.json` の内容**（対象 ID が除去／追加されていること）で検証する。保存回数を厳密に数えたい場合は、保存処理を `protected virtual` にする等の最小限のフック追加は許可する。
+- **注意**: `SyncPendingAsync` / `FlushDeletionsAsync` の `SemaphoreSlim` による直列化は維持すること。`ServerSyncService` のテストには §8 の「実 HTTP 回避」の手順に従うこと。
 
 #### A-4 [P1] 複数選択削除
 - **現状**: `DataGrid` は `SelectionMode` 未指定（既定 = Single）。削除は行ごとの「削除」ボタンのみ。
@@ -194,7 +239,7 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 
 #### A-5 [P1] 削除コマンドの CanExecute とフィードバック
 - **現状**: `DeleteRecordCommand` / `DeleteAllCommand` は `RelayCommand` の `CanExecute` を渡しておらず常に活性。`DeleteAll` は `IsLocationSet` を手動チェックして警告を出すだけ。
-- **対応方針**: `CanExecute` を使って活性制御し、実行時の無言 return を減らす。削除失敗時は `History` を変更しない（部分更新を避ける）。
+- **対応方針**: `CanExecute` を使って活性制御し、実行時の無言 return を減らす。削除失敗時は `History` を変更しない（部分更新を避ける）。`RelayCommand` / `RelayCommand<T>` は既に省略可能な `canExecute` コンストラクタ引数を持つ（`Common/RelayCommand.cs`）ため、そのまま利用できる。
 - **受入基準**: 履歴が空／場所未設定のとき削除が実行できない、または理由が通知される。
 
 #### A-6 [P1] 削除後の `History` 更新方針の統一
@@ -203,17 +248,19 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 - **受入基準**: 検索中・場所切替後でも表示と `_allHistory` が一致する。
 
 #### A-7 [P2] 削除のアンドゥ
-- **対応方針**: 直前 1 操作分の削除を取り消せるようにする（bin へ再追記、サーバー削除キューから除去）。設計難度が高い場合は見送り、その旨を PR に記載する。
+- **対応方針**: 直前 1 操作分の削除を取り消せるようにする（bin へ再追記、サーバー削除キューから除去）。設計難度が高い場合は見送り、その旨を報告に記載する。
 - **受入基準**: 誤削除を 1 操作だけ戻せる。戻せない場合は仕様として明記。
 
 ---
 
 ### B. メモリ／リソースリーク対策
 
+状態: **B-1 / B-2 / B-3 / B-6 = ✅ 完了**、B-4 / B-5 / B-7 = ⬜ 未着手（B-6 は P1 だが今回あわせて完了）
+
 #### B-1 [P0] `MainWindow` の無条件 `Dispatcher.Invoke` をガード
 - **現状**: `MainWindow.OnViewModelPropertyChanged` は `Dispatcher.Invoke(TryFocusManualInput)` を**無条件**で呼ぶ。`TryFocusManualInput` 自体も `_viewModel.PropertyChanged` 経由で呼ばれる。
 - **問題**: 既に UI スレッド上でも毎回 Invoke を通る。ウィンドウ終了処理中に発火すると `TaskCanceledException` / `InvalidOperationException` になり得る。
-- **対応方針**: `Dispatcher.CheckAccess()` と `Dispatcher.HasShutdownStarted` / `HasShutdownFinished` を確認してから実行する。`MainViewModel.RunOnUi` と同等のヘルパを共通化してよい。
+- **対応方針**: `Dispatcher.CheckAccess()` と `Dispatcher.HasShutdownStarted` / `HasShutdownFinished` を確認してから実行する。`MainViewModel.RunOnUi` と同等のヘルパを共通化してよい。なお `RunOnUi` は `private static`（`MainViewModel.cs`）のため、共通化する場合は `internal static` ヘルパクラスに移すなど、`MainWindow.xaml.cs` から呼べる形にする。
 - **受入基準**: 起動→モーダル開閉→終了が例外なく完了する。
 
 #### B-2 [P0] `RunOnUi` にシャットダウンガードを追加
@@ -227,7 +274,7 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 - **問題**: 学内ネットワーク不通時にスキャンし続けると、メモリと JSON 書き込みコストが増大し続ける。
 - **対応方針**: 上限（例: 5000 件）を設ける。超過時は古いものから破棄する（あるいは新規受付を止める）方針を決め、`UpdateStatus` に「未送信（上限超過）」を表示する。破棄する場合は `Debug.WriteLine` で記録する。
 - **受入基準**: 上限を超えてもアプリが落ちず、ステータスに状態が出る。復旧時に上限内のレコードが送信される。
-- **注意**: `sync_queue.json` の形式（`List<ScanRecord>`）は変更しない（§7）。
+- **注意**: `sync_queue.json` の形式（`List<ScanRecord>`）は変更しない（§7）。テストは §8 の「実 HTTP 回避」に従うこと。
 
 #### B-4 [P1] `_allHistory` の全件常駐と毎回全走査の改善
 - **現状**: `MainViewModel.LoadHistory` は `history.json` を**全場所分**メモリに読み込む。`RefreshHistoryView` は毎回 `_allHistory` を全走査して `CurrentLocation` と検索語でフィルタする。`ScanProcessor.ProcessScan` の重複判定も `allHistory.Any(...)` で O(n) 全走査。
@@ -252,16 +299,19 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
   - `Dispose()` 後に `notificationService.Success("x")` を呼んでも `NotificationMessage` が変化しないこと。
   - `Dispose()` を 2 回呼んでも例外にならないこと。
 - **ファイル**: `tests/Tenko.Tests/UnitTest1.cs`（既存の `MockClockService` / `MockDialogService` を再利用）。
+- **注意**: テストスレッドでは `Application.Current` が null のため、`RunOnUi` は即時実行される（`dispatcher == null` 分岐）。この前提で上記テストは成立する。
 - **受入基準**: 追加テストが合格し、`Dispose` を外すと失敗する（= 実効性がある）。
 
 #### B-7 [P2] `SaveHistory` の O(n²) 書き込み対策
 - **現状**: `ScanProcessor.ProcessScan` は 1 スキャンごとに `HistoryService.SaveHistory` で**履歴全件**を JSON 書き出しする（1 セッションで O(n²)）。
 - **対応方針**: 形式を維持したまま、デバウンス保存（例: 500ms まとめ書き）や追記ジャーナル + 定期コンパクト化を検討する。クラッシュ時のデータ保全とトレードオフになるため、実装するなら「終了時・操作確定時に必ずフラッシュ」を保証すること。
-- **禁止**: `history.json` の最終形式は変更しない（§7）。見送る場合は PR に理由を書く。
+- **禁止**: `history.json` の最終形式は変更しない（§7）。見送る場合は報告に理由を書く。
 
 ---
 
 ### C. UI・操作性の改善
+
+状態: **C-1 〜 C-4 = ✅ 完了**、C-5 〜 C-12 = ⬜ 未着手
 
 #### C-1 [P0] 「累計」が絞り込みに追随してしまう
 - **現状**: `MainWindow.xaml` の累計は `{Binding History.Count}`。`History` は**フィルタ結果**のコレクション（`RefreshHistoryView` が検索語で絞り込む）。
@@ -279,8 +329,8 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 #### C-3 [P0] 出力先がカレントディレクトリ
 - **現状**: `MainViewModel.ExportCsv/ExportBin` は `_exportService.ExportCsv(CurrentLocation, History)` と `outputDir` を渡さない。`ExportService` は `outputDir` が null のとき `fileName` のみを使うため、**プロセスのカレントディレクトリ**に書き込む。
 - **問題**: 単一ファイル配布で `Program Files` 配下や書込不可の作業ディレクトリで起動した場合、例外になる（あるいは利用者がファイルを見つけられない）。
-- **対応方針**: ユーザー書込可能な既定出力先（例: `%USERPROFILE%\Documents\Tenko出力`、または `AppContext.BaseDirectory\exports`）を導入し、通知に**絶対パス**を表示する。ディレクトリが無ければ作成する。
-- **受入基準**: 出力が必ず成功し、通知から保存先が分かる。テストでは一時ディレクトリを注入して検証する。
+- **対応方針**: ユーザー書込可能な既定出力先（例: `%USERPROFILE%\Documents\Tenko出力`、または `AppContext.BaseDirectory\exports`）を導入し、通知に**絶対パス**を表示する。ディレクトリが無ければ作成する。なお `ExportService.ExportCsv/ExportBin` は既に省略可能な `outputDir` 引数を持つ（VM から渡されていないだけ）。
+- **受入基準**: 出力が必ず成功し、通知から保存先が分かる。テストは `new ExportService().ExportCsv("場所", records, 一時ディレクトリ)` のように一時ディレクトリを渡して直接検証できる。
 
 #### C-4 [P0] CSV ヘッダ誤り
 - **現状**: `ExportService.ExportCsv` はヘッダ `"Timestamp,ID"` を書き、データ行は `$"{r.FormattedTimestamp},{r.Last5:D5}"`。
@@ -291,7 +341,7 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 #### C-5 [P1] 出力対象が絞り込み結果／無言 return
 - **現状**: `ExportCsv/ExportBin` は `if (History.Count == 0) return;` で無言終了し、渡すコレクションは**フィルタ済み**の `History`。ファイル名は `CurrentLocation` 基準。
 - **問題**: 絞り込み中に出力すると一部だけが出る／空のとき押しても何も起きず理由が分からない。
-- **対応方針**: 方針を決めて統一する。推奨は「現在場所の全件を出力」。絞り込み中に押した場合は「絞り込み中でも全件出力されます」と通知する。空の場合は `CanExecute` で無効化するか通知する。
+- **対応方針**: 方針を決めて統一する。推奨は「現在場所の全件を出力」。絞り込み中に押した場合は「絞り込み中でも全件出力されます」と通知する。空の場合は `CanExecute` で無効化するか通知する。なお `ExportService` は空コレクションを渡されると `InvalidOperationException` を投げるため、VM 側の空チェックは必ず先に行うこと。
 - **受入基準**: 出力件数が期待どおりで、無反応にならない。
 
 #### C-6 [P1] モーダルを Esc/Enter で操作できない
@@ -333,6 +383,8 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 
 ### D. 不具合・堅牢性
 
+状態: **D-1 / D-2 = ✅ 完了**、D-3 〜 D-7 = ⬜ 未着手
+
 #### D-1 [P0] `ProcessScan` の保存順序
 - **現状**: `allHistory.Insert` → `SaveHistory()` → `AppendLast5()` の順。
 - **問題**: `AppendLast5` が失敗すると `history.json` だけ更新され、bin と不整合になる（逆も同様に回避したい）。
@@ -343,7 +395,8 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 - **現状**: `MainViewModel.SubmitManualInput` は `_scanProcessor.ProcessScan` を try/catch なしで呼ぶ。`ProcessScan` 内部の `SaveHistory` / `AppendLast5` はファイル I/O を行い、例外を投げ得る。他の操作（削除・出力・リネーム）は try/catch 済みで不整合。
 - **問題**: ディスク満杯・権限不足などで UI スレッドの未処理例外となりアプリが落ちる。
 - **対応方針**: `SubmitManualInput` を try/catch し、`_notificationService.Error` で通知する。入力値（`ManualInput`）は失敗時に消さない（再試行できるように）。
-- **受入基準**: 書き込み失敗時もアプリが落ちず、原因が通知される。テストでは書き込み不可の `baseDir` を注入して検証できる。
+- **受入基準**: 書き込み失敗時もアプリが落ちず、原因が通知される。
+- **テスト方法**: Windows ではディレクトリの読み取り専用属性だけでは書込失敗を安定して再現できない。`IScanProcessor` を実装した「`ProcessScan` で例外を投げるスタブ」を作り、`MainViewModel` に注入して検証する（`MainViewModel` は `IScanProcessor` 経由なので容易）。
 
 #### D-3 [P1] デバウンスが単一スロット
 - **現状**: Lite の `ScanProcessor` は `_lastScannedNumber` / `_lastScannedAt` の**単一スロット**で判定。`Tenko.Native` 側は `Dictionary<ushort, DateTime>` + 古いキーのクリーンアップで**番号ごと**に判定。
@@ -405,30 +458,91 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 
 ## 8. テスト方針
 
-- 既存テストは `tests/Tenko.Tests/UnitTest1.cs`。Lite 用は `TenkoLite_ScanProcessorAndViewModel_OperatesWithoutStudentInfo`。
+### テストファイルの構成
+
+- `tests/Tenko.Tests/UnitTest1.cs` … Native / Lite 用（**新規テストはこのファイルの `TenkoTests` クラスに `[Fact]` で追加する。新しいテストファイルは作らない**）
+- `tests/Tenko.Tests/ScanViewerTests.cs` … ScanViewer 用（触らない）
+- `tests/Tenko.Tests/TenkoServerTests.cs` … サーバー用（触らない）
 - モックは `MockClockService` / `MockDialogService` が **Native と Lite の両インターフェースを実装**しているので再利用できる。
-- `StorageService` は `new StorageService(baseDir)` で基準ディレクトリを注入できる。テストでは `Path.GetTempPath()` 配下の一時ディレクトリを使い、`Dispose` で後始末する（既存の `TenkoTests` クラスを踏襲）。
-- 追加すべきテスト（対応するタスク）:
-  - 削除が Id ベースで 1 件のみ（A-1）／存在しない Id（A-1）
-  - bin 不整合時に警告（A-2）／壊れた bin で false（A-2）
-  - サーバー削除のバッチで保存回数が定数（A-3）
-  - `Dispose` 後にイベントが作用しない（B-6）
-  - 「累計」= 現在場所の全件で、絞り込みに影響されない（C-1）
-  - 出力先が書込可能ディレクトリで、CSV ヘッダが正しい（C-3 / C-4）
-  - 出力が場所の全件を対象にする（C-5）
-  - 書き込み失敗時に `SubmitManualInput` が落ちず通知する（D-2）
-  - デバウンス挙動の仕様固定（D-3）
-- **UI 変更は自動テストが難しいため、可能なら実際に `dotnet run` で起動して目視確認する。**
+
+### ストレージを使うテストの定型
+
+`StorageService` は `new Tenko.Lite.Services.StorageService(baseDir)` で基準ディレクトリを注入できる（`<baseDir>/kunugidasainotenko/{data,scans}` が作られる）。新規テストでは**必ず一意の一時ディレクトリを渡し**、後始末する:
+
+```csharp
+string baseDir = Path.Combine(Path.GetTempPath(), "TenkoTests_" + Guid.NewGuid().ToString("N"));
+try
+{
+    var storage = new Tenko.Lite.Services.StorageService(baseDir);
+    // ... テスト本体 ...
+}
+finally
+{
+    if (Directory.Exists(baseDir)) Directory.Delete(baseDir, true);
+}
+```
+
+注意点（実コードとの食い違いに惑わされないこと）:
+
+- **引数なしの `new StorageService()` は使わない。** テスト出力ディレクトリ直下に `kunugidasainotenko/` を作って実書き込みする。既存テストにこの使い方が残っているが、新規テストでは真似しない。
+- `TenkoTests` クラスの `_testDir` は作成・削除されるだけで、**現在どのテストからも `StorageService` に渡されていない**。「既存クラスを踏襲」とは `[Fact]` の追加先と Dispose パターンのことであり、`_testDir` が自動的に使われるわけではない。
+
+### MainViewModel のコンストラクタ（テストで使うシグネチャ）
+
+```csharp
+new Tenko.Lite.ViewModels.MainViewModel(
+    IScanProcessor scanProcessor,            // new ScanProcessor(historyService, scanFileService) またはスタブ
+    SettingsService settingsService,         // new SettingsService(storage)
+    NotificationService notificationService, // new NotificationService()
+    IClockService clockService,              // MockClockService
+    IExportService exportService,            // new ExportService()
+    IDialogService dialogService,            // MockDialogService
+    ServerSyncService? serverSyncService = null) // 省略可
+```
+
+### ServerSyncService のテスト: 実 HTTP 回避（重要）
+
+- `EmbeddedServerConfig.IsEnabled` / `ServerUrl` 等は**ビルド時に `data/server.json` から埋め込まれる**。現在の `data/server.json` は `enabled: true` で実 URL が設定されている。
+- そのため実 `HttpClient` のまま `EnqueueRecord` / `EnqueueDeletion` を呼ぶと、**実サーバーへ POST を試行する**（5 秒タイムアウト。失敗は `Debug.WriteLine` に吸収されるが、テストが遅く・不安定になる）。
+- テストでは必ず偽の `HttpMessageHandler` を注入する:
+
+```csharp
+private sealed class FakeHttpHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+}
+
+// 利用例
+var sync = new Tenko.Lite.Services.ServerSyncService(new HttpClient(new FakeHttpHandler()), persistFilePath);
+```
+
+- `_retryTimer`（30 秒）はテストスレッドでは発火しない。同期の検証は `SyncPendingAsync()` / `FlushDeletionsAsync()` を直接 `await` して行う。
+
+### 追加すべきテスト（対応するタスク）
+
+- 削除が Id ベースで 1 件のみ（A-1）／存在しない Id（A-1）
+- bin 不整合時に警告（A-2）／壊れた bin で false（A-2）
+- サーバー削除バッチ後の `sync_queue.json` / `sync_deletes.json` の内容（A-3）
+- `Dispose` 後にイベントが作用しない（B-6）
+- 「累計」= 現在場所の全件で、絞り込みに影響されない（C-1）
+- 出力先が書込可能ディレクトリで、CSV ヘッダが正しい（C-3 / C-4）
+- 出力が場所の全件を対象にする（C-5）
+- 例外を投げる `IScanProcessor` スタブで `SubmitManualInput` が落ちず通知する（D-2）
+- デバウンス挙動の仕様固定（D-3）
+- **UI 変更は自動テストが難しいため、可能なら `dotnet run --project src/Tenko.Lite/Tenko.Lite.csproj -c Debug` で起動して目視確認する。**
 
 ---
 
 ## 9. 実装上の注意
 
 - **コメントは日本語**で、既存のコメントスタイル（1 行で目的を説明）に合わせる。
+- **C# のスタイル**: `src/` 配下はブロックスコープ namespace（`namespace X { ... }`）、`tests/` はファイルスコープ namespace（`namespace Tenko.Tests;`）。編集するファイルの既存スタイルに合わせる。新規ファイルは同じディレクトリの既存ファイルに合わせる。
+- `Nullable` 有効（`<Nullable>enable</Nullable>`）。null を取りうる引数・戻り値には `?` を付ける。
 - 既存の設計方針（MVVM、Service 分割、`JsonHelper` 経由の JSON）を崩さない。
 - 過剰な抽象化・将来の要件の先回り実装をしない。タスクに必要な最小の変更に留める。
-- 1 タスク 1 コミット程度の粒度で進め、巨大なリファクタは避ける。
-- `Tenko.Native` / `ScanViewer` は本指示書のスコープ外。ただし同じ不具合が存在し得るため、Lite の挙動を変えた場合は PR 説明に「Native 未対応」である旨を明記する。
+- **新規 NuGet パッケージは追加しない**（既存: `Microsoft.Extensions.DependencyInjection` のみ）。
+- `Tenko.Native` / `ScanViewer` は本指示書のスコープ外。ただし同じ不具合が存在し得るため、Lite の挙動を変えた場合は報告に「Native 未対応」である旨を明記する。
 - ビルドの `[Generate-Embedded*]` 警告 4 件は正常。消そうとしない。
 
 ---
@@ -444,7 +558,7 @@ dotnet test tests/Tenko.Tests/Tenko.Tests.csproj -c Debug
 
 ## 11. コミット方針
 
-- **commit / push は指示された場合のみ**行う。
+- **commit / push は指示された場合のみ**行う。1 タスク 1 コミット程度の粒度とし、巨大なリファクタは避ける。
 - プレフィックスの例: `fix:` / `perf:` / `refactor:` / `feat:` / `test:`
 - メッセージは日本語。本文に変更点を箇条書きする。
 - 末尾に以下の trailer を必ず付ける:
