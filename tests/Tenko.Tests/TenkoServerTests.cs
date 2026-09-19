@@ -61,7 +61,7 @@ namespace Tenko.Tests
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<ScansController>.Instance);
 
             var batch = new ScanBatchRequestDto
             {
@@ -73,8 +73,6 @@ namespace Tenko.Tests
                         Id = "scan-1",
                         Barcode = "21021",
                         Last5 = 21021,
-                        StudentName = "太郎 花子", // クライアントから送ってもサーバーは保存しない
-                        StudentCode = "4D23",
                         Location = "2棟2階",
                         Timestamp = new DateTime(2026, 8, 21, 10, 0, 0)
                     },
@@ -83,8 +81,6 @@ namespace Tenko.Tests
                         Id = "scan-2",
                         Barcode = "23213",
                         Last5 = 23213,
-                        StudentName = null, // 個人情報なし
-                        StudentCode = null, // 個人情報なし
                         Location = "2棟2階",
                         Timestamp = new DateTime(2026, 8, 21, 10, 5, 0)
                     }
@@ -101,13 +97,13 @@ namespace Tenko.Tests
             Assert.Equal(0, response.DuplicateCount);
             Assert.Equal(2, response.NotificationQueuedCount);
 
-            // DB に保存されたか確認 (氏名・出席番号はクライアントから送られていても破棄される)
+            // DB に保存されたか確認 (エンティティは氏名・出席番号を保持しない)
             Assert.Equal(2, await _db.Scans.CountAsync());
             var saved = await _db.Scans.ToListAsync();
             Assert.All(saved, s =>
             {
-                Assert.Equal(string.Empty, s.StudentName);
-                Assert.Equal(string.Empty, s.StudentCode);
+                Assert.False(string.IsNullOrEmpty(s.Location));
+                Assert.True(s.Last5 > 0);
             });
 
             // キューから通知タスクを取り出せるか確認
@@ -133,7 +129,7 @@ namespace Tenko.Tests
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<ScansController>.Instance);
 
             ScanBatchRequestDto CreateBatch(string id, string location) => new ScanBatchRequestDto
             {
@@ -180,19 +176,19 @@ namespace Tenko.Tests
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<ScansController>.Instance);
 
             DateTime ts = new DateTime(2026, 8, 22, 9, 0, 0);
             _db.Scans.Add(new ScanEntity
             {
                 Id = "own-1", Timestamp = ts, Barcode = "21021", Last5 = 21021,
-                StudentName = "A", StudentCode = "c1", Location = "2棟2階",
+                Location = "2棟2階",
                 ClientId = "terminal-A", ReceivedAt = DateTime.UtcNow, ScanDate = "2026-08-22"
             });
             _db.Scans.Add(new ScanEntity
             {
                 Id = "other-1", Timestamp = ts, Barcode = "23213", Last5 = 23213,
-                StudentName = "B", StudentCode = "c2", Location = "2棟2階",
+                Location = "2棟2階",
                 ClientId = "terminal-B", ReceivedAt = DateTime.UtcNow, ScanDate = "2026-08-22"
             });
             await _db.SaveChangesAsync();
@@ -230,7 +226,7 @@ namespace Tenko.Tests
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
 
-            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
+            var controller = new ScansController(_db, queue, notifState, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<ScansController>.Instance);
 
             DateTime ts = new DateTime(2026, 8, 22, 9, 0, 0);
             _db.Scans.Add(new ScanEntity
@@ -273,7 +269,7 @@ namespace Tenko.Tests
             var mockEnv = new MockWebHostEnvironment();
             var studentMaster = new StudentMasterService(optionsWrapper, NullLogger<StudentMasterService>.Instance, mockEnv);
 
-            // テストデータを DB へ挿入 (新仕様では氏名・出席番号は保存されない)
+            // テストデータを DB へ挿入 (エンティティは氏名・出席番号を保持しない)
             _db.Scans.AddRange(
                 new TenkoServer.Data.Models.ScanEntity
                 {
@@ -281,8 +277,6 @@ namespace Tenko.Tests
                     Timestamp = new DateTime(2026, 8, 21, 9, 0, 0),
                     Barcode = "21021",
                     Last5 = 21021,
-                    StudentName = string.Empty,
-                    StudentCode = string.Empty,
                     Location = "2棟2階",
                     ScanDate = "2026-08-21"
                 },
@@ -292,8 +286,6 @@ namespace Tenko.Tests
                     Timestamp = new DateTime(2026, 8, 21, 9, 30, 0),
                     Barcode = "23213",
                     Last5 = 23213,
-                    StudentName = string.Empty,
-                    StudentCode = string.Empty,
                     Location = "本部横",
                     ScanDate = "2026-08-21"
                 }
@@ -302,7 +294,7 @@ namespace Tenko.Tests
 
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
             var queue = new NotificationQueue();
-            var controller = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+            var controller = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<DashboardController>.Instance);
 
             // サマリー取得
             var summaryResult = await controller.GetSummary("2026-08-21");
@@ -358,8 +350,8 @@ namespace Tenko.Tests
 
                 var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
                 var queue = new NotificationQueue();
-                var scansController = new ScansController(_db, queue, notifState, new ScanAcceptanceService(), NullLogger<ScansController>.Instance);
-                var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+                var scansController = new ScansController(_db, queue, notifState, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<ScansController>.Instance);
+                var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<DashboardController>.Instance);
 
                 string today = DateTime.Today.ToString("yyyy-MM-dd");
 
@@ -481,7 +473,7 @@ namespace Tenko.Tests
         {
             var queue = new NotificationQueue();
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
-            var acceptance = new ScanAcceptanceService { IsAcceptingScans = false };
+            var acceptance = new ScanAcceptanceService(new MockWebHostEnvironment()) { IsAcceptingScans = false };
 
             var controller = new ScansController(_db, queue, notifState, acceptance, NullLogger<ScansController>.Instance);
 
@@ -529,23 +521,23 @@ namespace Tenko.Tests
                 Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
             var queue = new NotificationQueue();
-            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<DashboardController>.Instance);
 
             _db.Scans.AddRange(
                 new ScanEntity
                 {
                     Id = "del-1", Timestamp = new DateTime(2026, 8, 21, 9, 0, 0), Barcode = "21021", Last5 = 21021,
-                    StudentName = "", StudentCode = "", Location = "2棟2階", ScanDate = "2026-08-21"
+                    Location = "2棟2階", ScanDate = "2026-08-21"
                 },
                 new ScanEntity
                 {
                     Id = "del-2", Timestamp = new DateTime(2026, 8, 22, 9, 0, 0), Barcode = "23213", Last5 = 23213,
-                    StudentName = "", StudentCode = "", Location = "2棟2階", ScanDate = "2026-08-22"
+                    Location = "2棟2階", ScanDate = "2026-08-22"
                 });
             _db.ArchivedScans.Add(new ArchivedScanEntity
             {
                 Id = "arch-1", Timestamp = new DateTime(2026, 8, 20, 9, 0, 0), Barcode = "11111", Last5 = 11111,
-                StudentName = "", StudentCode = "", Location = "2棟2階", ReceivedAt = DateTime.UtcNow,
+                Location = "2棟2階", ReceivedAt = DateTime.UtcNow,
                 ScanDate = "2026-08-20", SessionId = "session-x", ClosedAt = DateTime.UtcNow
             });
             await _db.SaveChangesAsync();
@@ -589,7 +581,7 @@ namespace Tenko.Tests
                 Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
             var queue = new NotificationQueue();
-            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<DashboardController>.Instance);
 
             _db.Scans.Add(new ScanEntity
             {
@@ -625,7 +617,7 @@ namespace Tenko.Tests
                 Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
             var queue = new NotificationQueue();
-            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<DashboardController>.Instance);
 
             DateTime ts = new DateTime(2026, 8, 21, 9, 0, 0);
             _db.Scans.AddRange(
@@ -700,9 +692,10 @@ namespace Tenko.Tests
                     legacy.Database.EnsureCreated();
 
                     // 旧 DB に既に存在するレコードを再現 (EF モデルの新列はまだ無いので生 SQL)
+                    // 個人情報 (氏名・出席番号) を含む旧データが消去されることを検証するため値を入れる
                     legacy.Database.ExecuteSqlRaw(
                         "INSERT INTO Scans (Id, Timestamp, Barcode, Last5, StudentName, StudentCode, Location, ClientId, ReceivedAt, ScanDate) " +
-                        "VALUES ('legacy-1', '2026-08-21 09:00:00', '21021', 21021, '', '', '2棟2階', '', '2026-08-21 09:00:00', '2026-08-21')");
+                        "VALUES ('legacy-1', '2026-08-21 09:00:00', '21021', 21021, '山田 太郎', '4D23', '2棟2階', '', '2026-08-21 09:00:00', '2026-08-21')");
                 }
 
                 using (var db = new TenkoDbContext(options))
@@ -721,6 +714,21 @@ namespace Tenko.Tests
                     Assert.True(HasColumn("IsDeleted"));
                     Assert.True(HasColumn("DeletedAt"));
                     Assert.True(HasColumn("DeletedByClientId"));
+                    Assert.True(HasColumn("DeletedReason"));
+                    Assert.True(HasColumn("RestoredAt"));
+                    Assert.True(HasColumn("RestoredByClientId"));
+
+                    // 移行により旧スキーマの個人情報は空文字で上書きされる (生 SQL で確認)
+                    var conn2 = db.Database.GetDbConnection();
+                    if (conn2.State != System.Data.ConnectionState.Open) conn2.Open();
+                    using (var cmd = conn2.CreateCommand())
+                    {
+                        cmd.CommandText = "SELECT StudentName, StudentCode FROM Scans WHERE Id = 'legacy-1'";
+                        using var reader = cmd.ExecuteReader();
+                        Assert.True(reader.Read());
+                        Assert.Equal(string.Empty, reader.GetString(0));
+                        Assert.Equal(string.Empty, reader.GetString(1));
+                    }
 
                     // 移行済み旧レコードは既定値 (未削除) で読み取れる。2 回実行しても冪等
                     DatabaseMigrator.Migrate(db);
@@ -746,12 +754,12 @@ namespace Tenko.Tests
                 Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
             var queue = new NotificationQueue();
-            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(), NullLogger<DashboardController>.Instance);
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue, new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<DashboardController>.Instance);
 
             _db.ArchivedScans.Add(new ArchivedScanEntity
             {
                 Id = "restore-1", Timestamp = new DateTime(2026, 8, 21, 9, 0, 0), Barcode = "21021", Last5 = 21021,
-                StudentName = "", StudentCode = "", Location = "2棟2階", ReceivedAt = DateTime.UtcNow,
+                Location = "2棟2階", ReceivedAt = DateTime.UtcNow,
                 ScanDate = "2026-08-21", SessionId = "session-r", SessionLabel = "午前", ClosedAt = DateTime.UtcNow
             });
             await _db.SaveChangesAsync();
@@ -795,7 +803,7 @@ namespace Tenko.Tests
                 Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
             var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
             var queue = new NotificationQueue();
-            var acceptance = new ScanAcceptanceService();
+            var acceptance = new ScanAcceptanceService(new MockWebHostEnvironment());
             var dashboard = new DashboardController(_db, studentMaster, notifState, queue, acceptance, NullLogger<DashboardController>.Instance);
 
             // 既定値は許可
@@ -812,6 +820,77 @@ namespace Tenko.Tests
             // 再開
             dashboard.UpdateScanAcceptance(new UpdateScanAcceptanceRequestDto { IsAcceptingScans = true });
             Assert.True(acceptance.IsAcceptingScans);
+        }
+
+        [Fact]
+        public void ScanAcceptanceService_PersistsStateAcrossInstances()
+        {
+            // 本番停止用途: 再起動 (新インスタンス) 後も受付停止状態が維持されることを確認する
+            string stateDir = Path.Combine(Path.GetTempPath(), "TenkoAcceptance_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var env = new MockWebHostEnvironment { ContentRootPath = stateDir };
+
+                var first = new ScanAcceptanceService(env);
+                Assert.True(first.IsAcceptingScans); // 既定は受付
+                first.IsAcceptingScans = false;      // 停止へ切替
+
+                // 新しいインスタンス (= サーバー再起動相当) で停止状態が復元される
+                var second = new ScanAcceptanceService(env);
+                Assert.False(second.IsAcceptingScans);
+
+                // 再開しても永続化される
+                second.IsAcceptingScans = true;
+                var third = new ScanAcceptanceService(env);
+                Assert.True(third.IsAcceptingScans);
+            }
+            finally
+            {
+                if (Directory.Exists(stateDir)) Directory.Delete(stateDir, true);
+            }
+        }
+
+        [Fact]
+        public async Task DashboardController_DeleteHistory_RecordsReasonAndRestoreKeepsIt()
+        {
+            var studentMaster = new StudentMasterService(
+                Options.Create(_options), NullLogger<StudentMasterService>.Instance, new MockWebHostEnvironment());
+            var notifState = new NotificationStateService(new MockOptionsMonitor<TenkoServerOptions>(_options));
+            var queue = new NotificationQueue();
+            var dashboard = new DashboardController(_db, studentMaster, notifState, queue,
+                new ScanAcceptanceService(new MockWebHostEnvironment()), NullLogger<DashboardController>.Instance);
+
+            _db.Scans.Add(new ScanEntity
+            {
+                Id = "audit-1", Timestamp = new DateTime(2026, 8, 21, 9, 0, 0), Barcode = "21021", Last5 = 21021,
+                Location = "2棟2階", ScanDate = "2026-08-21"
+            });
+            await _db.SaveChangesAsync();
+
+            // 理由付きで削除
+            await dashboard.DeleteHistory(new DeleteHistoryRequestDto
+            {
+                ScanIds = new List<string> { "audit-1" },
+                Reason = "誤スキャンのため"
+            });
+
+            var deleted = await _db.Scans.IgnoreQueryFilters().SingleAsync(s => s.Id == "audit-1");
+            Assert.True(deleted.IsDeleted);
+            Assert.Equal("admin-panel", deleted.DeletedByClientId);
+            Assert.Equal("誤スキャンのため", deleted.DeletedReason);
+
+            // 一覧 API でも削除理由が返る
+            var list = Assert.IsType<List<ScanItemDto>>(
+                Assert.IsType<OkObjectResult>((await dashboard.GetScans("2026-08-21", null, null)).Result).Value);
+            Assert.Equal("誤スキャンのため", list.Single().DeletedReason);
+
+            // 復元: フラグは戻るが削除理由は監査のため残り、復元情報が記録される
+            await dashboard.RestoreScans(new RestoreScansRequestDto { ScanIds = new List<string> { "audit-1" } });
+            var restored = await _db.Scans.SingleAsync(s => s.Id == "audit-1");
+            Assert.False(restored.IsDeleted);
+            Assert.Equal("誤スキャンのため", restored.DeletedReason);
+            Assert.NotNull(restored.RestoredAt);
+            Assert.Equal("admin-panel", restored.RestoredByClientId);
         }
 
         [Fact]

@@ -9,8 +9,6 @@ namespace TenkoServer.Models.DTOs
         public DateTime Timestamp { get; set; }
         public string Barcode { get; set; } = string.Empty;
         public ushort Last5 { get; set; }
-        public string? StudentName { get; set; }
-        public string? StudentCode { get; set; }
         public string Location { get; set; } = string.Empty;
         public bool NotificationSent { get; set; }
 
@@ -22,6 +20,9 @@ namespace TenkoServer.Models.DTOs
 
         /// <summary>削除を要求したクライアント</summary>
         public string? DeletedByClientId { get; set; }
+
+        /// <summary>削除理由 (監査用)</summary>
+        public string? DeletedReason { get; set; }
     }
 
     public class ScanBatchRequestDto
@@ -43,6 +44,9 @@ namespace TenkoServer.Models.DTOs
     {
         public string ClientId { get; set; } = string.Empty;
         public List<string> Ids { get; set; } = new();
+
+        /// <summary>削除理由 (任意・監査用)</summary>
+        public string? Reason { get; set; }
     }
 
     public class ScanDeleteResponseDto

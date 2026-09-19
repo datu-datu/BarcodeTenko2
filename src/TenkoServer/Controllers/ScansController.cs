@@ -98,16 +98,14 @@ namespace TenkoServer.Controllers
                     continue;
                 }
 
-                // 個人情報保護: サーバーは学籍番号のみを扱う。
-                // クライアントから送られた氏名・出席番号は保存せず破棄する。
+                // 個人情報保護: サーバーは学籍番号・時刻・場所のみを保持する。
+                // 氏名・出席番号はクライアントから送信されても保存しない (DTOにも存在しない)。
                 var entity = new ScanEntity
                 {
                     Id = record.Id,
                     Timestamp = record.Timestamp != default ? record.Timestamp : DateTime.Now,
                     Barcode = record.Barcode,
                     Last5 = record.Last5,
-                    StudentName = string.Empty,
-                    StudentCode = string.Empty,
                     Location = location,
                     ClientId = request.ClientId ?? string.Empty,
                     ReceivedAt = DateTime.UtcNow,
@@ -193,10 +191,11 @@ namespace TenkoServer.Controllers
                     scan.IsDeleted = true;
                     scan.DeletedAt = deletedAt;
                     scan.DeletedByClientId = clientId;
+                    scan.DeletedReason = request.Reason;
                 }
                 await _db.SaveChangesAsync();
-                _logger.LogInformation("Soft-deleted {DeletedCount} scan(s) requested by client '{ClientId}' (requested {RequestedCount}).",
-                    targets.Count, clientId, request.Ids.Count);
+                _logger.LogInformation("Soft-deleted {DeletedCount} scan(s) requested by client '{ClientId}' (requested {RequestedCount}). Reason: {Reason}",
+                    targets.Count, clientId, request.Ids.Count, request.Reason ?? "(none)");
             }
 
             return Ok(new ScanDeleteResponseDto

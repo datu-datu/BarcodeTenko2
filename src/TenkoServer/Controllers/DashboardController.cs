@@ -79,8 +79,6 @@ namespace TenkoServer.Controllers
                     Timestamp = s.Timestamp,
                     Barcode = s.Barcode,
                     Last5 = s.Last5,
-                    StudentName = s.StudentName,
-                    StudentCode = s.StudentCode,
                     Location = s.Location
                 })
                 .ToList();
@@ -141,13 +139,12 @@ namespace TenkoServer.Controllers
                 Timestamp = s.Timestamp,
                 Barcode = s.Barcode,
                 Last5 = s.Last5,
-                StudentName = s.StudentName,
-                StudentCode = s.StudentCode,
                 Location = s.Location,
                 NotificationSent = sentSet.Contains(s.Id),
                 IsDeleted = s.IsDeleted,
                 DeletedAt = s.DeletedAt,
-                DeletedByClientId = s.DeletedByClientId
+                DeletedByClientId = s.DeletedByClientId,
+                DeletedReason = s.DeletedReason
             }).ToList();
 
             return Ok(result);
@@ -208,8 +205,6 @@ namespace TenkoServer.Controllers
                     Timestamp = s.Timestamp,
                     Barcode = s.Barcode,
                     Last5 = s.Last5,
-                    StudentName = s.StudentName,
-                    StudentCode = s.StudentCode,
                     Location = s.Location,
                     ClientId = s.ClientId,
                     ReceivedAt = s.ReceivedAt,
@@ -219,7 +214,10 @@ namespace TenkoServer.Controllers
                     ClosedAt = closedAt,
                     IsDeleted = s.IsDeleted,
                     DeletedAt = s.DeletedAt,
-                    DeletedByClientId = s.DeletedByClientId
+                    DeletedByClientId = s.DeletedByClientId,
+                    DeletedReason = s.DeletedReason,
+                    RestoredAt = s.RestoredAt,
+                    RestoredByClientId = s.RestoredByClientId
                 }));
                 _db.Scans.RemoveRange(actives);
                 await _db.SaveChangesAsync();
@@ -381,15 +379,16 @@ namespace TenkoServer.Controllers
                         Timestamp = a.Timestamp,
                         Barcode = a.Barcode,
                         Last5 = a.Last5,
-                        StudentName = a.StudentName,
-                        StudentCode = a.StudentCode,
                         Location = a.Location,
                         ClientId = a.ClientId,
                         ReceivedAt = a.ReceivedAt,
                         ScanDate = a.ScanDate,
                         IsDeleted = a.IsDeleted,
                         DeletedAt = a.DeletedAt,
-                        DeletedByClientId = a.DeletedByClientId
+                        DeletedByClientId = a.DeletedByClientId,
+                        DeletedReason = a.DeletedReason,
+                        RestoredAt = a.RestoredAt,
+                        RestoredByClientId = a.RestoredByClientId
                     });
                     restoredCount++;
                 }
@@ -432,10 +431,11 @@ namespace TenkoServer.Controllers
             string targetDate = ResolveTargetDate(date);
 
             var sb = new StringBuilder();
-            sb.AppendLine("Timestamp,StudentNumber,StudentName,StudentCode,Location,Barcode,ClientId");
+            // 個人情報保護: 氏名・出席番号はサーバーに保持しないため CSV にも出力しない
+            sb.AppendLine("Timestamp,StudentNumber,Location,Barcode,ClientId");
             foreach (var r in records)
             {
-                sb.AppendLine($"{r.Timestamp:yyyy-MM-dd HH:mm:ss},{r.Last5:D5},\"{r.StudentName}\",\"{r.StudentCode}\",\"{r.Location}\",\"{r.Barcode}\",\"{r.ClientId}\"");
+                sb.AppendLine($"{r.Timestamp:yyyy-MM-dd HH:mm:ss},{r.Last5:D5},\"{r.Location}\",\"{r.Barcode}\",\"{r.ClientId}\"");
             }
 
             string filename = BuildExportFilename("tenko_export", targetDate, location, session, ".csv");
@@ -495,8 +495,6 @@ namespace TenkoServer.Controllers
             Timestamp = a.Timestamp,
             Barcode = a.Barcode,
             Last5 = a.Last5,
-            StudentName = a.StudentName,
-            StudentCode = a.StudentCode,
             Location = a.Location,
             ClientId = a.ClientId,
             ReceivedAt = a.ReceivedAt,
@@ -553,7 +551,8 @@ namespace TenkoServer.Controllers
         }
 
         /// <summary>
-        /// クライアントからの点呼データ受付可否を取得する (テスト時の受付停止用)。
+        /// クライアントからの点呼データ受付可否を取得する。
+        /// 本番停止にも使用され、状態は再起動後も維持される。
         /// </summary>
         [HttpGet("scan-acceptance")]
         public ActionResult<ScanAcceptanceDto> GetScanAcceptance()
@@ -585,6 +584,7 @@ namespace TenkoServer.Controllers
         /// - Date 指定時: その日の全レコードを削除
         /// - AllTime = true: 全期間のレコードを削除
         /// データ自体は削除フラグ付きで保持され、scans/restore から復元できる。
+        /// 削除理由 (Reason) は監査のため記録される。
         /// アーカイブ済みデータは対象外 (sessions 系 API で管理)。
         /// </summary>
         [HttpPost("scans/delete")]
@@ -620,14 +620,17 @@ namespace TenkoServer.Controllers
             if (targets.Count > 0)
             {
                 DateTime deletedAt = DateTime.UtcNow;
+                string? reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
                 foreach (var scan in targets)
                 {
                     scan.IsDeleted = true;
                     scan.DeletedAt = deletedAt;
                     scan.DeletedByClientId = "admin-panel";
+                    scan.DeletedReason = reason;
                 }
                 await _db.SaveChangesAsync();
-                _logger.LogWarning("Soft-deleted {DeletedCount} active scan record(s) from admin panel.", targets.Count);
+                _logger.LogWarning("Soft-deleted {DeletedCount} active scan record(s) from admin panel. Reason: {Reason}",
+                    targets.Count, reason ?? "(none)");
             }
 
             return Ok(new DeleteResponseDto
@@ -641,6 +644,7 @@ namespace TenkoServer.Controllers
         /// <summary>
         /// 論理削除された点呼履歴を復元する (削除の取り消し)。
         /// 復元すると重複チェック・未点呼判定・エクスポートの対象に戻る。
+        /// 監査のため、削除理由 (DeletedReason) は保持したまま復元日時と復元者を記録する。
         /// </summary>
         [HttpPost("scans/restore")]
         public async Task<ActionResult<RestoreSessionResponseDto>> RestoreScans([FromBody] RestoreScansRequestDto? request)
@@ -661,11 +665,15 @@ namespace TenkoServer.Controllers
                 .Where(s => s.IsDeleted && ids.Contains(s.Id))
                 .ToListAsync();
 
+            DateTime restoredAt = DateTime.UtcNow;
             foreach (var scan in targets)
             {
                 scan.IsDeleted = false;
                 scan.DeletedAt = null;
                 scan.DeletedByClientId = string.Empty;
+                // DeletedReason は監査のため消さずに残す
+                scan.RestoredAt = restoredAt;
+                scan.RestoredByClientId = "admin-panel";
             }
 
             if (targets.Count > 0)

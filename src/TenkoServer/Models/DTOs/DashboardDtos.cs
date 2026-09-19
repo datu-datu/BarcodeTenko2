@@ -117,6 +117,9 @@ namespace TenkoServer.Models.DTOs
         public List<string>? ScanIds { get; set; }
         public string? Date { get; set; }
         public bool AllTime { get; set; }
+
+        /// <summary>削除理由 (任意・監査用)</summary>
+        public string? Reason { get; set; }
     }
 
     /// <summary>論理削除済み点呼履歴の復元リクエスト</summary>

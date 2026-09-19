@@ -18,11 +18,8 @@ namespace TenkoServer.Data.Models
 
         public ushort Last5 { get; set; }
 
-        [MaxLength(50)]
-        public string StudentName { get; set; } = string.Empty;
-
-        [MaxLength(20)]
-        public string StudentCode { get; set; } = string.Empty;
+        // 個人情報保護: サーバーは氏名・出席番号を保持しない。
+        // 保持するのは 時刻(Timestamp) / 場所(Location) / 学籍番号下5桁(Last5) のみ。
 
         [MaxLength(50)]
         public string Location { get; set; } = string.Empty;
@@ -51,5 +48,16 @@ namespace TenkoServer.Data.Models
         /// <summary>削除を要求したクライアント</summary>
         [MaxLength(50)]
         public string DeletedByClientId { get; set; } = string.Empty;
+
+        /// <summary>削除理由 (監査用。管理パネルでの削除時に入力)</summary>
+        [MaxLength(200)]
+        public string? DeletedReason { get; set; }
+
+        /// <summary>復元日時 (UTC)。未復元時は null</summary>
+        public DateTime? RestoredAt { get; set; }
+
+        /// <summary>復元を実行した主体 (例: admin-panel)</summary>
+        [MaxLength(50)]
+        public string? RestoredByClientId { get; set; }
     }
 }

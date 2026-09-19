@@ -329,6 +329,15 @@ async function toggleScanAcceptance() {
 }
 
 /**
+ * 削除理由入力欄の値を取得する (空なら null)
+ */
+function getDeleteReason() {
+    const el = document.getElementById('deleteReasonInput');
+    const v = el ? el.value.trim() : '';
+    return v === '' ? null : v;
+}
+
+/**
  * チェックされた行のスキャン履歴を削除する (論理削除)
  */
 async function deleteSelectedScans() {
@@ -340,11 +349,12 @@ async function deleteSelectedScans() {
         return;
     }
 
-    if (!confirm(`選択した ${ids.length} 件の点呼履歴を削除しますか？\n削除済みとして記録され、一覧から復元できます（アーカイブ済みデータには影響しません）。`)) {
+    const reason = getDeleteReason();
+    if (!confirm(`選択した ${ids.length} 件の点呼履歴を削除しますか？\n削除済みとして記録され、一覧から復元できます（アーカイブ済みデータには影響しません）。${reason ? `\n削除理由: ${reason}` : ''}`)) {
         return;
     }
 
-    await postScanDelete({ scanIds: ids });
+    await postScanDelete({ scanIds: ids, reason: reason });
 }
 
 /**
@@ -354,11 +364,12 @@ async function deleteDayScans() {
     const date = document.getElementById('dateSelect').value;
     if (!date) return;
 
-    if (!confirm(`${date} の点呼履歴を全件削除しますか？\n削除済みとして記録され、一覧から復元できます（アーカイブ済みデータには影響しません）。`)) {
+    const reason = getDeleteReason();
+    if (!confirm(`${date} の点呼履歴を全件削除しますか？\n削除済みとして記録され、一覧から復元できます（アーカイブ済みデータには影響しません）。${reason ? `\n削除理由: ${reason}` : ''}`)) {
         return;
     }
 
-    await postScanDelete({ date: date });
+    await postScanDelete({ date: date, reason: reason });
 }
 
 async function postScanDelete(body) {
@@ -741,7 +752,7 @@ function renderScansTable() {
     document.getElementById('scansCountBadge').innerText = activeCount;
 
     if (visible.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">${deletedCount > 0 && !showDeleted ? `点呼データはありません（削除済み ${deletedCount} 件を非表示中）` : '点呼データはありません'}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">${deletedCount > 0 && !showDeleted ? `点呼データはありません（削除済み ${deletedCount} 件を非表示中）` : '点呼データはありません'}</td></tr>`;
         updateActionButtonStates();
         return;
     }
@@ -770,11 +781,9 @@ function renderScansTable() {
                 <td>${checkboxCell}</td>
                 <td class="font-mono">${main(escapeHtml(timeStr))}</td>
                 <td class="font-mono">${main(escapeHtml(String(r.last5).padStart(5, '0')))}</td>
-                <td>${main(`<span class="badge badge-info">${escapeHtml(r.studentCode || '-')}</span>`)}</td>
-                <td><strong>${main(escapeHtml(r.studentName || '未登録'))}</strong></td>
                 <td>${main(`<span class="badge badge-success">${escapeHtml(r.location || '未設定')}</span>`)}</td>
                 <td class="font-mono" style="color: var(--text-muted);">${main(escapeHtml(r.barcode))}</td>
-                <td>${notificationCell}${deleted ? renderRestoreButton(r.id, r.deletedAt, r.deletedByClientId) : ''}</td>
+                <td>${notificationCell}${deleted ? renderRestoreButton(r.id, r.deletedAt, r.deletedByClientId, r.deletedReason) : ''}</td>
             </tr>
         `;
     }
@@ -806,10 +815,13 @@ function renderScansTable() {
 }
 
 /**
- * 論理削除済み行の復元ボタン HTML を生成する (title に削除日時と要求元を表示)
+ * 論理削除済み行の復元ボタン HTML を生成する (title に削除日時・要求元・理由を表示)
  */
-function renderRestoreButton(id, deletedAt, deletedByClientId) {
-    const title = `削除: ${deletedAt ? new Date(deletedAt).toLocaleString('ja-JP') : '-'} / 元: ${deletedByClientId || '-'}`;
+function renderRestoreButton(id, deletedAt, deletedByClientId, deletedReason) {
+    let title = `削除: ${deletedAt ? new Date(deletedAt).toLocaleString('ja-JP') : '-'} / 元: ${deletedByClientId || '-'}`;
+    if (deletedReason) {
+        title += ` / 理由: ${deletedReason}`;
+    }
     return ` <button class="btn btn-xs btn-outline restore-row-btn" data-scan-id="${escapeHtml(id)}" title="${escapeHtml(title)}">復元</button>`;
 }
 
