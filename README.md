@@ -41,12 +41,12 @@
 ```
 BarcodeTenko2/
   ├── data/
-  │   ├── students.csv         # [元データ] 学生マスタの平文CSV（リポジトリ外管理を推奨）
-  │   ├── students.passphrase  # [ビルド時埋め込み] 暗号化・復号用パスフレーズ
+  │   ├── students.csv         # [元データ] 学生マスタの平文CSV（Git管理外。各自で作成）
+  │   ├── students.passphrase  # [ビルド時埋め込み] 暗号化・復号用パスフレーズ（Git管理外）
   │   ├── locations.json       # [ビルド時埋め込み] 点呼場所の初期リスト
-  │   ├── server.json          # [ビルド時埋め込み] サーバー同期設定（URL・APIキー）
-  │   ├── students.enc         # [実行時読み込み] 暗号化された学生マスタ（スクリプトで生成・端末側で使用）
-  │   └── students.txt         # [TenkoServer 実行時読み込み] 学籍番号のみのリスト（氏名は含まない）
+  │   ├── server.json          # [ビルド時埋め込み] サーバー同期設定（URL・APIキー。Git管理外）
+  │   ├── students.enc         # [実行時読み込み] 暗号化された学生マスタ（スクリプトで生成・端末側で使用。Git管理外）
+  │   └── students.txt         # [TenkoServer 実行時読み込み] 学籍番号のみのリスト（氏名は含まない。Git管理外）
 ```
 
 ### 各ファイルの役割と作成手順

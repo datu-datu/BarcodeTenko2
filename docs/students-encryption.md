@@ -15,9 +15,9 @@
 
 | ファイル | 役割 | 参照タイミング |
 | --- | --- | --- |
-| `data\students.csv` | 暗号化の元データ（リポジトリ） | 暗号化スクリプト実行時のみ |
+| `data\students.csv` | 暗号化の元データ（Git管理外・各自で作成） | 暗号化スクリプト実行時のみ |
 | `kunugidasainotenko\data\students.enc` | 暗号化済みマスタ（実行フォルダ） | アプリ起動時に読み込む |
-| `data\students.passphrase` | 復号鍵（リポジトリ） | **ビルド時**に読み込んで埋め込む |
+| `data\students.passphrase` | 復号鍵（Git管理外） | **ビルド時**に読み込んで埋め込む |
 
 ## 実行時の参照先（フォルダ階層）
 

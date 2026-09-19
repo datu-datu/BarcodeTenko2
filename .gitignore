@@ -7,12 +7,21 @@ dist/
 *.sln
 !Tenko.sln
 
-## [Data]
+## [Secrets / Personal Info]
+# 秘密情報・個人情報はリポジトリに含めない (例: server.example.json をコピーして作成)
+data/server.json
+data/students.csv
+data/students.enc
+data/students.txt
+*.passphrase
+
+## [Runtime Data]
+# 実行時に生成されるデータ・状態ファイル
 data/history.json
 data/settings.json
-data/server.json
-data/students.enc
-*.passphrase
+data/scan_acceptance.json
+data/sync_queue.json
+data/sync_deletes.json
 scans/
 tools/data/
 
